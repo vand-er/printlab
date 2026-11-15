@@ -1,0 +1,43 @@
+# vand-er
+
+Parametric, agent-designed functional parts for a Bambu Lab X1C. Vocabulary is in `CONTEXT.md`; research and prior art are in `docs/research/`.
+
+## Hard rules
+
+- **Never write G-code or slicer project files.** Agents produce CAD only: STEP, STL and a PNG preview. The user slices by hand in Bambu Studio.
+- **Every dimension is a named parameter** in the part's `Params` dataclass. No magic numbers in `build()`.
+- **Test first.** Write the part's `test_model.py` assertions (hole sizes, fit, solid count) before the geometry.
+- A part is done when `uv run pytest` passes, `uv run vander build <part>` succeeds, and the user has looked at `out/<part>.png`.
+
+## Layout
+
+```
+parts/<name>/model.py       Params dataclass + build(params) -> Part
+parts/<name>/test_model.py  assertions for this part (TDD)
+parts/<name>/out/           exported STEP, STL, PNG; committed
+src/vander/checks.py        check_part(): one valid solid that fits the X1C; hole_diameters()
+src/vander/export.py        export_part(): STEP round-trip check, watertight STL, preview
+```
+
+Add a helper to `src/vander/` only once a second part needs it.
+
+## Commands
+
+- `uv run pytest`: all tests
+- `uv run vander build <part>`: check and export
+- `uv run vander list`: list parts
+
+## Design rules
+
+- Material: PETG or ASA. PLA softens at about 55 °C.
+- Minimum wall 1.2 mm for load-bearing parts.
+- Print snap-fit beams lying flat, never standing up.
+- FDM holes print undersize. Use the measured offsets from the `hole-gauge` part once it has been printed; until then, add a 0.2 mm clearance.
+- Check every number taken from elsewhere against `docs/research/prior-art/`. The table in `3dp-mcp-server.md` lists values known to be wrong.
+
+## The build123d MCP server (`.mcp.json`)
+
+- Register shapes with `show(part, "name")` so its tools can see them.
+- `install_skill` is denied in `.claude/settings.json`; leave it denied.
+- Its sandbox is not a security boundary, and its tip-over check gives false positives on clamps.
+- Use it to explore and measure. The part's source of truth is always `parts/<name>/model.py`.

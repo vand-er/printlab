@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "deny": [
+      "mcp__build123d__install_skill",
+      "Write(**/*.gcode)",
+      "Write(**/*.gcode.3mf)",
+      "Edit(**/*.gcode)"
+    ]
+  }
+}
