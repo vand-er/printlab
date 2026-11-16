@@ -1,7 +1,7 @@
 import trimesh
 from build123d import Box, Cylinder
 
-from vander.export import export_part
+from printlab.export import export_part
 
 
 def test_export_writes_verified_step_stl_and_preview(tmp_path):

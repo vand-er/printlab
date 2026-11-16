@@ -1,4 +1,4 @@
-# vand-er
+# printlab
 
 Functional parts for a Bambu Lab X1C, designed as parametric build123d code and checked by tests.
 
@@ -11,7 +11,7 @@ Functional parts for a Bambu Lab X1C, designed as parametric build123d code and 
 ## Make a part
 
 ```
-uv run vander build hole-gauge
+uv run printlab build hole-gauge
 ```
 
 This writes `parts/hole-gauge/out/hole-gauge.{step,stl,png}`. Open the STL or STEP in Bambu Studio and slice it there.

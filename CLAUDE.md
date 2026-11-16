@@ -1,13 +1,13 @@
-# vand-er
+# printlab
 
-Parametric, agent-designed functional parts for a Bambu Lab X1C. Vocabulary is in `CONTEXT.md`; research and prior art are in `docs/research/`.
+Parametric, agent-designed functional parts for a Bambu Lab X1C. Vocabulary is in `GLOSSARY.md`; decisions are in `docs/adr/`; research and prior art are in `docs/research/`.
 
 ## Hard rules
 
 - **Never write G-code or slicer project files.** Agents produce CAD only: STEP, STL and a PNG preview. The user slices by hand in Bambu Studio.
 - **Every dimension is a named parameter** in the part's `Params` dataclass. No magic numbers in `build()`.
 - **Test first.** Write the part's `test_model.py` assertions (hole sizes, fit, solid count) before the geometry.
-- A part is done when `uv run pytest` passes, `uv run vander build <part>` succeeds, and the user has looked at `out/<part>.png`.
+- A part is done when `uv run pytest` passes, `uv run printlab build <part>` succeeds, and the user has looked at `out/<part>.png`.
 
 ## Layout
 
@@ -15,17 +15,17 @@ Parametric, agent-designed functional parts for a Bambu Lab X1C. Vocabulary is i
 parts/<name>/model.py       Params dataclass + build(params) -> Part
 parts/<name>/test_model.py  assertions for this part (TDD)
 parts/<name>/out/           exported STEP, STL, PNG; committed
-src/vander/checks.py        check_part(): one valid solid that fits the X1C; hole_diameters()
-src/vander/export.py        export_part(): STEP round-trip check, watertight STL, preview
+src/printlab/checks.py        check_part(): one valid solid that fits the X1C; hole_diameters()
+src/printlab/export.py        export_part(): STEP round-trip check, watertight STL, preview
 ```
 
-Add a helper to `src/vander/` only once a second part needs it.
+Add a helper to `src/printlab/` only once a second part needs it.
 
 ## Commands
 
 - `uv run pytest`: all tests
-- `uv run vander build <part>`: check and export
-- `uv run vander list`: list parts
+- `uv run printlab build <part>`: check and export
+- `uv run printlab list`: list parts
 
 ## Design rules
 

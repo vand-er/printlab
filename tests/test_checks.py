@@ -1,6 +1,6 @@
 from build123d import Box, Cylinder, Pos
 
-from vander.checks import X1C_BUILD_VOLUME, check_part, hole_diameters
+from printlab.checks import X1C_BUILD_VOLUME, check_part, hole_diameters
 
 
 def plate_with_holes(*diameters):

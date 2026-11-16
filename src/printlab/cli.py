@@ -1,15 +1,15 @@
-"""vander build <part> — check a part and export STEP, STL and a preview to parts/<part>/out/."""
+"""printlab build <part> — check a part and export STEP, STL and a preview to parts/<part>/out/."""
 
 import argparse
 import sys
 
-from vander.checks import check_part, hole_diameters
-from vander.export import export_part
-from vander.parts import PARTS_DIR, load_part, part_names
+from printlab.checks import check_part, hole_diameters
+from printlab.export import export_part
+from printlab.parts import PARTS_DIR, load_part, part_names
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="vander")
+    parser = argparse.ArgumentParser(prog="printlab")
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser("build", help="check and export a part")
     build.add_argument("part", choices=part_names())

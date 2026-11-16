@@ -2,8 +2,8 @@ from dataclasses import replace
 
 import pytest
 
-from vander.checks import check_part, hole_diameters
-from vander.parts import load_part
+from printlab.checks import check_part, hole_diameters
+from printlab.parts import load_part
 
 model = load_part("hole-gauge")
 
