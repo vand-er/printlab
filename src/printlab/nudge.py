@@ -36,13 +36,15 @@ def numeric_fields(params_type) -> list[str]:
 
 
 def problems(
-    part: str, field: str, factor: float, pairs: tuple[tuple[str, str], ...],
+    part: str, field: str, factor: float, pairs: tuple[tuple[str, str], ...] | str,
     poses: tuple[str, ...],
 ) -> list[str]:
     """What breaks with one field nudged: `check_part` on each body in the first pose
     (as printed), and `check_fit` on each moving pair in every pose."""
     module = load_part(part)
     params = nudged(module.Params(), field, factor)
+    if isinstance(pairs, str):  # a function in the part's model, when a nudge renames bodies
+        pairs = getattr(module, pairs)(params)
     found = []
     try:
         for i, pose in enumerate(poses):
@@ -61,7 +63,7 @@ def problems(
 
 
 def audit(
-    part: str, pairs: tuple[tuple[str, str], ...], poses: tuple[str | tuple, ...]
+    part: str, pairs: tuple[tuple[str, str], ...] | str, poses: tuple[str | tuple, ...]
 ) -> dict[tuple[str, float], list[str]]:
     """{(field, factor): problems} for every numeric field of the part's Params."""
     jobs = [(f, k) for f in numeric_fields(load_part(part).Params) for k in FACTORS]

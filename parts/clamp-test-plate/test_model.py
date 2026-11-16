@@ -74,23 +74,11 @@ def test_no_load_bearing_wall_is_under_the_minimum():
     assert params.pin_diameter >= 2 * MIN_WALL
 
 
-def fit_pairs():
-    """Every pair that moves against another: each Door and Cart collar body on the plate,
-    each Cart Door on its body."""
-    params = model.Params()
-    doors = [f"door-{model.label_name(n)}" for n in params.nominal_bores]
-    carts = [model.label_name(n) for n in params.cart_nominal_bores]
-    return tuple(
-        [("plate", d) for d in doors]
-        + [("plate", f"cart-body-{c}") for c in carts]
-        + [(f"cart-body-{c}", f"cart-door-{c}") for c in carts]
-    )
-
-
 @pytest.fixture(scope="module")
 def nudges():
-    """Every numeric field nudged ±10 %, run once across worker processes."""
-    return nudge.audit("clamp-test-plate", fit_pairs(), (("closed", "bottom"), ("open", "top")))
+    """Every numeric field nudged ±10 %, run once across worker processes. Pairs come from
+    the model's fit_pairs, since nudging a bore renames its bodies."""
+    return nudge.audit("clamp-test-plate", "fit_pairs", (("closed", "bottom"), ("open", "top")))
 
 
 @pytest.mark.slow

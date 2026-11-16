@@ -65,6 +65,18 @@ def label_name(nominal: float) -> str:
     return f"{nominal:.1f}".replace(".", "-")
 
 
+def fit_pairs(p: Params) -> tuple[tuple[str, str], ...]:
+    """The bodies that move against each other: each Door and Cart collar body on the
+    plate, each Cart Door on its body. Names follow the bores, so a nudge renames them."""
+    doors = [f"door-{label_name(n)}" for n in p.nominal_bores]
+    carts = [label_name(n) for n in p.cart_nominal_bores]
+    return tuple(
+        [("plate", d) for d in doors]
+        + [("plate", f"cart-body-{c}") for c in carts]
+        + [(f"cart-body-{c}", f"cart-door-{c}") for c in carts]
+    )
+
+
 def sample_x(p: Params, i: int) -> float:
     return (i - (len(p.nominal_bores) - 1) / 2) * p.pitch
 
