@@ -1,13 +1,13 @@
 # printlab
 
-Parametric, agent-designed functional parts for a Bambu Lab X1C. Vocabulary is in `GLOSSARY.md`; decisions are in `docs/adr/`; research and prior art are in `docs/research/`.
+Parametric, agent-designed functional parts for a Bambu Lab X1C. Vocabulary is in `GLOSSARY.md`; decisions are in `docs/adr/`; research and prior art are in `docs/research/`; review rules are in `CODING_STANDARDS.md`.
 
 ## Hard rules
 
 - **Never write G-code or slicer project files.** Agents produce CAD only: STEP, STL and a PNG preview. The user slices by hand in Bambu Studio.
-- **Every dimension is a named parameter** in the part's `Params` dataclass. No magic numbers in `build()`.
+- **Every dimension is a named parameter** in the part's `Params` dataclass. `tests/test_standards.py` enforces it.
 - **Test first.** Write the part's `test_model.py` assertions (hole sizes, fit, solid count) before the geometry.
-- A part is done when `uv run pytest` passes, `uv run printlab build <part>` succeeds, and the user has looked at `out/<part>.png`.
+- A part is done when `uv run pytest` and `uv run pytest -m slow` pass, `uv run printlab build <part>` succeeds, and the user has looked at `out/<part>.png`.
 
 ## Layout
 
@@ -23,7 +23,9 @@ Add a helper to `src/printlab/` only once a second part needs it.
 
 ## Commands
 
-- `uv run pytest`: all tests
+- `uv run pytest`: fast tests, in parallel; add `-n 0` for a single test
+- `uv run pytest -m slow`: the minutes-long ±10 % perturbation audits
+- `uv run ruff check .`: lint
 - `uv run printlab build <part>`: check and export
 - `uv run printlab list`: list parts
 
@@ -36,10 +38,7 @@ Add a helper to `src/printlab/` only once a second part needs it.
 - FDM holes print undersize. Use the measured offsets from the `hole-gauge` part once it has been printed; until then, add a 0.2 mm clearance.
 - Check every number taken from elsewhere against `docs/research/prior-art/`. The table in `3dp-mcp-server.md` lists values known to be wrong.
 
-## The build123d MCP server (`.mcp.json`)
+## build123d
 
-- Register shapes with `show(part, "name")` so its tools can see them.
 - Before writing geometry, read the MCP resources `build123d://quickref` and `build123d://selectors`; when a solid fails, read `build123d://skill/repair`. Look anything else up in https://build123d.readthedocs.io/en/stable/llms.txt.
-- `install_skill` is denied in `.claude/settings.json`; leave it denied.
-- Its sandbox is not a security boundary, and its tip-over check gives false positives on clamps.
-- Use it to explore and measure. The part's source of truth is always `parts/<name>/model.py`.
+- To measure or debug a shape, prefer the build123d MCP tools (`show(part, "name")`, then `measure`, `compare`, `render_view`) over one-off scripts. Its tip-over check gives false positives on clamps.

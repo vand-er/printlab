@@ -42,6 +42,10 @@ from build123d import (
 
 GRAM_BUDGET = 8.0  # g; the CLI warns above this
 
+# Modelling tolerances, not printed dimensions.
+OVERLAP = 0.01  # mm two solids share so their union fuses into one
+SPIKE_TIP = 0.05  # mm flat top of a knuckle spike, inside the pin, so it never degenerates to a point
+
 
 @dataclass(frozen=True)
 class Params:
@@ -123,7 +127,7 @@ def _below_spike(p: Params, apex: float) -> Part:
     """
     slope = math.tan(math.radians(p.knuckle_cone))  # mm inward per mm up
     bottom = -1.0
-    tip = 0.05  # flat top, inside the pin, so the spike never degenerates to a point
+    tip = SPIKE_TIP
     rise = (apex - bottom) - tip / slope
     base = RegularPolygon(tip + rise * slope, p.knuckle_facets, major_radius=False)
     return Pos(0, 0, bottom) * extrude(base, rise, taper=p.knuckle_cone)
@@ -238,15 +242,15 @@ def _latch(p: Params, bore_d: float) -> Part:
     y_tip = y_hold - p.hook_length
     y_root = y_hold + p.arm_length
     root = _box(0, x1, y_root, y_root + p.arm_root, p.latch_height)
-    arm = _box(x0, x1, y_tip, y_root + 0.01, p.latch_height)
+    arm = _box(x0, x1, y_tip, y_root + OVERLAP, p.latch_height)
     # Hook: square holding face, lead-in chamfer on the tip side.
     lead = p.hook_length - p.hook_land
     hook = _prism(
-        [(x0 + 0.01, y_hold), (x0 - p.catch_depth, y_hold),
-         (x0 - p.catch_depth, y_tip + lead), (x0 + 0.01, y_tip)],
+        [(x0 + OVERLAP, y_hold), (x0 - p.catch_depth, y_hold),
+         (x0 - p.catch_depth, y_tip + lead), (x0 + OVERLAP, y_tip)],
         p.latch_height,
     )
-    tab = _box(x1 - 0.01, x1 + p.tab_reach, y_tip, y_tip + p.tab_width, p.latch_height)
+    tab = _box(x1 - OVERLAP, x1 + p.tab_reach, y_tip, y_tip + p.tab_width, p.latch_height)
     return root + arm + hook + tab
 
 
@@ -300,10 +304,10 @@ def cart_collar_height(p: Params) -> float:
 def _lip(p: Params, bore_d: float, height: float, side: int) -> Part | None:
     """The lip at the collar top on one side of the split, or None if it clears the bore."""
     lip_d = p.glass_diameter + 2 * p.lip_clearance
-    if lip_d >= bore_d - 0.02:
+    if lip_d >= bore_d - 2 * OVERLAP:
         return None
     ring = Pos(0, 0, height - p.lip_thickness) * (
-        Cylinder(bore_d / 2 + 0.01, p.lip_thickness, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        Cylinder(bore_d / 2 + OVERLAP, p.lip_thickness, align=(Align.CENTER, Align.CENTER, Align.MIN))
         - Cylinder(lip_d / 2, 3 * p.lip_thickness)
     )
     return ring & _half_ring(p, bore_d, height, side)

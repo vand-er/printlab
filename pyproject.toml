@@ -13,7 +13,7 @@ dependencies = [
 printlab = "printlab.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pytest-xdist>=3", "ruff>=0.6"]
 
 [build-system]
 requires = ["hatchling"]
@@ -24,4 +24,14 @@ packages = ["src/printlab"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "parts"]
-addopts = "--import-mode=importlib"
+# Parallel by default; pass -n 0 to run one test quickly.
+addopts = "--import-mode=importlib -m 'not slow' -n auto"
+markers = ["slow: minutes-long perturbation audits; run with -m slow"]
+
+[tool.ruff]
+line-length = 110
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B905"]  # zip() strict=: every zip here pairs fixed-length tuples

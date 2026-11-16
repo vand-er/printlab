@@ -86,6 +86,7 @@ def nudged(params, field, factor):
     return replace(params, **{field: value})
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("factor", [0.9, 1.1])
 @pytest.mark.parametrize("field", [f.name for f in fields(model.Params)])
 def test_survives_plus_minus_ten_percent(field, factor):
