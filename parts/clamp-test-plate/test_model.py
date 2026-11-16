@@ -1,7 +1,7 @@
 from dataclasses import fields, replace
 
 import pytest
-from build123d import Align, Box, Pos
+from build123d import Align, Axis, Box, Pos
 
 from printlab.checks import check_fit, check_part, hole_diameters
 from printlab.export import PETG_DENSITY
@@ -91,12 +91,16 @@ def nudged(params, field, factor):
 def test_survives_plus_minus_ten_percent(field, factor):
     # Perturbation audit: nudging any dimension must not break a body or a fit.
     params = nudged(model.Params(), field, factor)
-    for pose in ("closed", "open"):
-        bodies = model.build(params, pose)
+    for pose, travel in (("closed", "bottom"), ("open", "top")):
+        bodies = model.build(params, pose, travel)
         for name, body in bodies.items():
             assert check_part(body).ok, (name, pose)
-            if name.startswith("door-"):
+            if name.startswith("door-") or name.startswith("cart-body-"):
                 report = check_fit(bodies["plate"], body, params.gap)
+                assert report.ok, (name, pose, report.problems)
+            if name.startswith("cart-door-"):
+                mate = bodies[name.replace("cart-door-", "cart-body-")]
+                report = check_fit(mate, body, params.gap)
                 assert report.ok, (name, pose, report.problems)
 
 
@@ -109,3 +113,102 @@ def test_each_door_fits_the_plate_without_overlap_or_rattle(pose):
     for name in doors:
         report = check_fit(bodies["plate"], bodies[name], params.gap)
         assert report.ok, (name, pose, report.problems)
+
+
+# --- Cart collar samples (#12) ---
+
+CART_NAMES = ("12-0", "12-2", "12-4")
+
+
+def cart_pairs(bodies):
+    """(sliding body, Door) of each Cart collar sample."""
+    return [(bodies[f"cart-body-{n}"], bodies[f"cart-door-{n}"]) for n in CART_NAMES]
+
+
+def test_each_cart_collar_bore_is_its_nominal_plus_the_fdm_offset():
+    bodies = model.build()
+    # Nominal 12.0, 12.2, 12.4 mm plus the 0.2 mm default offset (spec #10).
+    for name, bore in zip(CART_NAMES, (12.2, 12.4, 12.6)):
+        assert bore in hole_diameters(bodies[f"cart-body-{name}"])
+        assert bore in hole_diameters(bodies[f"cart-door-{name}"])
+
+
+def test_cart_collar_grips_brass_only():
+    params = model.Params()
+    # Spec #10: brass about 10 mm tall less a 1 mm margin, so about 9 mm.
+    assert params.brass_height - params.brass_margin == pytest.approx(9.0)
+    for body, door in cart_pairs(model.build(params)):
+        for part in (body, door):
+            box = part.bounding_box()
+            assert box.min.Z == pytest.approx(0, abs=1e-6)
+            assert box.size.Z == pytest.approx(9.0, abs=1e-6)
+
+
+def test_cart_lip_clears_the_glass_and_is_smaller_than_the_bore():
+    params = model.Params()
+    lip = round(params.glass_diameter + 2 * params.lip_clearance, 3)
+    pairs = cart_pairs(model.build(params))
+    for nominal, pair in zip(params.cart_nominal_bores, pairs):
+        assert params.glass_diameter < lip < model.bore(params, nominal)
+        for part in pair:
+            assert lip in hole_diameters(part)
+
+
+@pytest.mark.parametrize("travel", ["bottom", "top"])
+def test_each_cart_collar_slides_on_its_stub_without_overlap_or_rattle(travel):
+    params = model.Params()
+    bodies = model.build(params, travel=travel)
+    for body, door in cart_pairs(bodies):
+        report = check_fit(bodies["plate"], body, params.gap)
+        assert report.ok, (travel, report.problems)
+        assert not (bodies["plate"] & door).solids()
+
+
+def test_cart_collar_travel_is_its_named_travel_and_stops_there():
+    params = model.Params()
+    bottom = model.build(params, travel="bottom")
+    top = model.build(params, travel="top")
+    assert params.travel == pytest.approx(2.0)  # spec #10: about 2 mm
+    for name in CART_NAMES:
+        for part in ("body", "door"):
+            key = f"cart-{part}-{name}"
+            rise = top[key].bounding_box().min.Z - bottom[key].bounding_box().min.Z
+            assert rise == pytest.approx(2.0, abs=1e-6)
+        # Pushed any further up, the body hits the stub's stop. The stop faces are at 45°,
+        # so `gap` normal to them is gap·√2 vertically.
+        past = Pos(0, 0, params.gap * 2**0.5 + 0.05) * top[f"cart-body-{name}"]
+        assert (top["plate"] & past).solids()
+
+
+def test_cart_rib_stops_the_collar_turning():
+    params = model.Params()
+    bodies = model.build(params)
+    for i, (body, _) in enumerate(cart_pairs(bodies)):
+        x, y = model.cart_centre(params, i)
+        axis = Axis((x, y, 0), (0, 0, 1))
+        for angle in (-3, 3):
+            assert (bodies["plate"] & body.rotate(axis, angle)).solids(), angle
+
+
+@pytest.mark.parametrize("pose", ["closed", "open"])
+@pytest.mark.parametrize("travel", ["bottom", "top"])
+def test_each_cart_door_fits_its_body_without_overlap_or_rattle(pose, travel):
+    params = model.Params()
+    bodies = model.build(params, pose, travel)
+    for body, door in cart_pairs(bodies):
+        report = check_fit(body, door, params.gap)
+        assert report.ok, (pose, travel, report.problems)
+        assert not (bodies["plate"] & door).solids()
+
+
+def test_each_cart_latch_arm_bends_in_the_layer_plane():
+    doors = [door for _, door in cart_pairs(model.build())]
+    arms = model.cart_latch_arms()
+    assert len(arms) == 3
+    for arm in arms:
+        assert any(abs((door & arm).volume - arm.volume) < 1e-6 for door in doors)
+        size = arm.bounding_box().size
+        thickness, length = sorted((size.X, size.Y))
+        assert length > 3 * thickness
+        assert size.Z > 2 * thickness
+        assert thickness >= MIN_WALL

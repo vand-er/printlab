@@ -29,7 +29,10 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection  # noqa: E402
 # What a part's build() may return: one Part, or named bodies printed together.
 Parts = Part | Mapping[str, Part]
 
-PALETTE = ("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf")
+PALETTE = (
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf",
+    "#bcbd22", "#7f7f7f", "#393b79", "#ad494a",
+)
 PETG_DENSITY = 1.27  # g/cm³
 
 
