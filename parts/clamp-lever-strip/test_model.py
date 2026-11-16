@@ -180,6 +180,7 @@ LINKAGE_FIELDS = (
 LINKAGE_BODIES = ("cradle", "cart-body", "lever", "link")
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("factor", [0.9, 1.1])
 @pytest.mark.parametrize("field", LINKAGE_FIELDS)
 def test_linkage_survives_plus_minus_ten_percent(field, factor):

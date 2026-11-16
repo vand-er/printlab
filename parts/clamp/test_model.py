@@ -250,6 +250,7 @@ def nudges():
     return nudge.audit("clamp", FIT_PAIRS, ("closed", "open"))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("factor", nudge.FACTORS)
 @pytest.mark.parametrize("field", nudge.numeric_fields(model.Params))
 def test_survives_plus_minus_ten_percent(field, factor, nudges):

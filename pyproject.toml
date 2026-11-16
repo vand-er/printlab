@@ -26,7 +26,7 @@ packages = ["src/printlab"]
 testpaths = ["tests", "parts"]
 # Parallel by default; pass -n 0 to run one test quickly.
 addopts = "--import-mode=importlib -m 'not slow' -n auto"
-markers = ["slow: minutes-long perturbation audits; run with -m slow"]
+markers = ["slow: minutes-long perturbation audits; run with -m slow -n 0 (nudge.audit pools the CPUs)"]
 
 [tool.ruff]
 line-length = 110

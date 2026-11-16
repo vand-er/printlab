@@ -1,9 +1,9 @@
 import pytest
 from build123d import Align, Axis, Box, Pos
 
+from printlab import nudge
 from printlab.checks import check_fit, check_part, hole_diameters
 from printlab.export import PETG_DENSITY
-from printlab.nudge import FACTORS, nudged, numeric_fields
 from printlab.parts import load_part
 
 model = load_part("clamp-test-plate")
@@ -74,22 +74,31 @@ def test_no_load_bearing_wall_is_under_the_minimum():
     assert params.pin_diameter >= 2 * MIN_WALL
 
 
-@pytest.mark.parametrize("factor", FACTORS)
-@pytest.mark.parametrize("field", numeric_fields(model.Params))
-def test_survives_plus_minus_ten_percent(field, factor):
+def fit_pairs():
+    """Every pair that moves against another: each Door and Cart collar body on the plate,
+    each Cart Door on its body."""
+    params = model.Params()
+    doors = [f"door-{model.label_name(n)}" for n in params.nominal_bores]
+    carts = [model.label_name(n) for n in params.cart_nominal_bores]
+    return tuple(
+        [("plate", d) for d in doors]
+        + [("plate", f"cart-body-{c}") for c in carts]
+        + [(f"cart-body-{c}", f"cart-door-{c}") for c in carts]
+    )
+
+
+@pytest.fixture(scope="module")
+def nudges():
+    """Every numeric field nudged ±10 %, run once across worker processes."""
+    return nudge.audit("clamp-test-plate", fit_pairs(), (("closed", "bottom"), ("open", "top")))
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("factor", nudge.FACTORS)
+@pytest.mark.parametrize("field", nudge.numeric_fields(model.Params))
+def test_survives_plus_minus_ten_percent(field, factor, nudges):
     # Perturbation audit: nudging any dimension must not break a body or a fit.
-    params = nudged(model.Params(), field, factor)
-    for pose, slide in (("closed", "bottom"), ("open", "top")):
-        bodies = model.build(params, pose, slide)
-        for name, body in bodies.items():
-            assert check_part(body).ok, (name, pose)
-            if name.startswith("door-") or name.startswith("cart-body-"):
-                report = check_fit(bodies["plate"], body, params.gap)
-                assert report.ok, (name, pose, report.problems)
-            if name.startswith("cart-door-"):
-                mate = bodies[name.replace("cart-door-", "cart-body-")]
-                report = check_fit(mate, body, params.gap)
-                assert report.ok, (name, pose, report.problems)
+    assert nudges[(field, factor)] == []
 
 
 @pytest.mark.parametrize("pose", ["closed", "open"])

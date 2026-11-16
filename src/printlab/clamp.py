@@ -45,12 +45,12 @@ from printlab.collar import (
     bore,
     bore_cut,
     box,
+    carriage_back_y,
+    carriage_half_width,
     cart_body,
     cart_collar_height,
     cart_door,
     cart_rib,
-    carriage_back_y,
-    carriage_half_width,
     cradle_stub,
     door,
     knuckle_radius,
@@ -58,6 +58,13 @@ from printlab.collar import (
     outer_radius,
     pose_door,
 )
+
+# Numerical settings, not printed dimensions.
+SOLVE_STEPS = 100  # bisection steps when solving the crank angle for a stroke
+CIRCLE_FACETS = 48  # facets of a circle used as an outline
+HULL_FACETS = 720  # facets per disc when finding which discs a hull runs round
+DIGITS = 9  # decimals points are rounded to before comparing them
+SAME = 1e-6  # mm (or radians); values closer than this coincide
 
 
 @dataclass(frozen=True)
@@ -182,7 +189,7 @@ def solve_linkage(
     lo, hi = locked - centre, locked - centre + math.pi
     if rise(locked - hi) - rise(locked) < stroke:
         raise ValueError(f"stroke {stroke} mm is beyond this linkage")
-    for _ in range(100):
+    for _ in range(SOLVE_STEPS):
         mid = (lo + hi) / 2
         lo, hi = (mid, hi) if rise(locked - mid) - rise(locked) < stroke else (lo, mid)
     pivot = (pivot_y, link_z - rise(locked))
@@ -212,7 +219,7 @@ def _x_pin(radius: float, centre: tuple[float, float], x0: float, x1: float) -> 
     )
 
 
-def _circle(centre: tuple[float, float], radius: float, n: int = 48) -> list[tuple[float, float]]:
+def _circle(centre: tuple[float, float], radius: float, n: int = CIRCLE_FACETS) -> list[tuple[float, float]]:
     y, z = centre
     return [(y + radius * math.cos(2 * math.pi * i / n), z + radius * math.sin(2 * math.pi * i / n))
             for i in range(n)]
@@ -220,7 +227,7 @@ def _circle(centre: tuple[float, float], radius: float, n: int = 48) -> list[tup
 
 def _hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
     """Convex hull, anticlockwise (Andrew's monotone chain)."""
-    pts = sorted(set((round(y, 9), round(z, 9)) for y, z in points))
+    pts = sorted(set((round(y, DIGITS), round(z, DIGITS)) for y, z in points))
 
     def half(seq):
         out = []
@@ -247,8 +254,8 @@ def _disc_hull_prism(discs: list[Disc], x0: float, x1: float) -> Part:
     owner = {}
     for i in sorted(range(len(discs)), key=lambda i: discs[i][1]):  # larger discs win ties
         (y, z), r = discs[i]
-        points = _circle((y, z), r, 720) if r > 0 else [(y, z)]
-        owner.update({(round(a, 9), round(b, 9)): i for a, b in points})
+        points = _circle((y, z), r, HULL_FACETS) if r > 0 else [(y, z)]
+        owner.update({(round(a, DIGITS), round(b, DIGITS)): i for a, b in points})
     order = [owner[q] for q in _hull(list(owner))]
     order = [i for k, i in enumerate(order) if i != order[k - 1]]
 
@@ -273,12 +280,12 @@ def _disc_hull_prism(discs: list[Disc], x0: float, x1: float) -> Part:
             a0 = math.atan2(start[1] - z, start[0] - y)
             a1 = math.atan2(end[1] - z, end[0] - y)
             sweep = (a1 - a0) % (2 * math.pi)
-            if sweep > 1e-6:
+            if sweep > SAME:
                 mid = a0 + sweep / 2
                 edges.append(Edge.make_three_point_arc(
                     (x0, *start), (x0, y + r * math.cos(mid), z + r * math.sin(mid)), (x0, *end)
                 ))
-        if math.dist(lines[k][0], lines[k][1]) > 1e-6:
+        if math.dist(lines[k][0], lines[k][1]) > SAME:
             edges.append(Edge.make_line((x0, *lines[k][0]), (x0, *lines[k][1])))
     face = Face(Wire(edges))
     return extrude(face, amount=x1 - x0, dir=(1, 0, 0))

@@ -5,13 +5,18 @@ from pathlib import Path
 
 import pytest
 
-PARTS = sorted(Path(__file__).parent.parent.glob("parts/*/model.py"))
+ROOT = Path(__file__).parent.parent
+# Every module that builds geometry; the pipeline modules carry no dimensions.
+NOT_GEOMETRY = {"__init__.py", "checks.py", "export.py", "cli.py", "nudge.py", "parts.py"}
+PARTS = sorted(ROOT.glob("parts/*/model.py")) + sorted(
+    p for p in ROOT.glob("src/printlab/*.py") if p.name not in NOT_GEOMETRY
+)
 
 # Literals that are geometry, not dimensions: halving, thirds, flips and whole turns.
-ALLOWED = {0, 1, 2, 3, 0.5, 90, 180, 360}
+ALLOWED = {0, 1, 2, 3, 4, 0.5, 90, 180, 360}
 
 
-@pytest.mark.parametrize("path", PARTS, ids=lambda p: p.parent.name)
+@pytest.mark.parametrize("path", PARTS, ids=lambda p: f"{p.parent.name}/{p.name}")
 def test_no_magic_numbers_in_model_functions(path):
     # Every dimension is a named parameter: in Params, or a named module constant.
     tree = ast.parse(path.read_text(encoding="utf-8"))

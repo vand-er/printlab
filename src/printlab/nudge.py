@@ -46,7 +46,10 @@ def problems(
     found = []
     try:
         for i, pose in enumerate(poses):
-            bodies = module.build(params, pose)
+            # A pose is build()'s arguments after params: a name, or a tuple of them.
+            args = pose if isinstance(pose, tuple) else (pose,)
+            pose = "/".join(map(str, args))
+            bodies = module.build(params, *args)
             if i == 0:
                 found += [f"{n}: {q}" for n, b in bodies.items() for q in check_part(b).problems]
             for a, b in pairs:
@@ -58,10 +61,13 @@ def problems(
 
 
 def audit(
-    part: str, pairs: tuple[tuple[str, str], ...], poses: tuple[str, ...]
+    part: str, pairs: tuple[tuple[str, str], ...], poses: tuple[str | tuple, ...]
 ) -> dict[tuple[str, float], list[str]]:
     """{(field, factor): problems} for every numeric field of the part's Params."""
     jobs = [(f, k) for f in numeric_fields(load_part(part).Params) for k in FACTORS]
-    with ProcessPoolExecutor(os.cpu_count()) as pool:
+    # Under pytest-xdist every worker is already a process; one pool per CPU each would
+    # start CPUs² processes. Run the slow audits with -n 0 to give the pool every CPU.
+    workers = 1 if os.environ.get("PYTEST_XDIST_WORKER") else os.cpu_count()
+    with ProcessPoolExecutor(workers) as pool:
         futures = {job: pool.submit(problems, part, *job, pairs, poses) for job in jobs}
         return {job: future.result() for job, future in futures.items()}
