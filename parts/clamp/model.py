@@ -17,7 +17,14 @@ from dataclasses import dataclass
 
 from build123d import Axis, Edge, Face, GeomType, Part, Vector, Wire, chamfer, extrude, revolve
 
-from printlab.clamp import ClampParams, battery_bore, cart_bore, locked_bodies, pose_bodies
+from printlab.clamp import (
+    ClampParams,
+    battery_bore,
+    cart_bore,
+    latch_arms,  # noqa: F401  each Door's Latch arm, for the tests
+    locked_bodies,
+    pose_bodies,
+)
 from printlab.collar import Pose
 
 SHARP_ANGLE = 115.0  # degrees; a convex edge whose faces meet under this is sharp

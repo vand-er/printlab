@@ -268,6 +268,24 @@ def test_survives_plus_minus_ten_percent(field, factor):
 MIN_WALL = 1.2  # mm, CLAUDE.md design rule for load-bearing walls
 
 
+def test_each_latch_arm_is_a_horizontal_beam_bending_in_the_layer_plane(closed):
+    params = model.Params()
+    arms = model.latch_arms(params)
+    assert set(arms) == {"battery-door", "cart-door"}
+    # Spec #10: the 12 mm Battery collar's Latch runs its full height.
+    assert arms["battery-door"].bounding_box().size.Z == pytest.approx(12.0)
+    for door, arm in arms.items():
+        # The arm belongs to its Door; the edge breaks shave only its corners.
+        assert (closed[door] & arm).volume > 0.95 * arm.volume, door
+        size = arm.bounding_box().size
+        thickness, length = sorted((size.X, size.Y))
+        # Long along a horizontal axis, thin along the other, tall in Z: it can only bend
+        # about Z, so it deflects within the XY (layer) plane.
+        assert length > 3 * thickness, door
+        assert size.Z > 2 * thickness, door
+        assert thickness >= MIN_WALL, door
+
+
 def test_no_load_bearing_wall_is_under_the_minimum(closed):
     params = model.Params()
     for b in ("lever", "link"):
