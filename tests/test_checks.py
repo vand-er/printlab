@@ -1,6 +1,6 @@
 from build123d import Box, Cylinder, Pos
 
-from printlab.checks import X1C_BUILD_VOLUME, check_part, hole_diameters
+from printlab.checks import X1C_BUILD_VOLUME, check_fit, check_part, hole_diameters
 
 
 def plate_with_holes(*diameters):
@@ -46,3 +46,51 @@ def test_part_that_fits_only_when_rotated_still_fails():
     # Orientation is the designer's decision, so check the part as modelled.
     tall = Box(10, 10, X1C_BUILD_VOLUME[2] + 1)
     assert not check_part(tall).ok
+
+
+# check_fit: two 10 mm cubes, b sitting `gap` mm beyond a along X.
+
+
+def cubes_with_gap(gap):
+    return Box(10, 10, 10), Pos(10 + gap, 0, 0) * Box(10, 10, 10)
+
+
+def test_overlapping_parts_fail_fit():
+    a, b = cubes_with_gap(-1.0)
+    report = check_fit(a, b, clearance=0.3)
+    assert not report.ok
+    assert any("overlap" in p for p in report.problems)
+
+
+def test_gap_under_clearance_fails_fit():
+    a, b = cubes_with_gap(0.1)
+    report = check_fit(a, b, clearance=0.3)
+    assert not report.ok
+    assert any("gap" in p for p in report.problems)
+
+
+def test_too_loose_gap_fails_rattle():
+    a, b = cubes_with_gap(1.0)
+    report = check_fit(a, b, clearance=0.3)
+    assert not report.ok
+    assert any("rattle" in p for p in report.problems)
+
+
+def test_gap_at_clearance_passes_fit():
+    a, b = cubes_with_gap(0.3)
+    report = check_fit(a, b, clearance=0.3)
+    assert report.ok, report.problems
+
+
+def test_pin_in_bore_at_clearance_passes_fit():
+    pin = Cylinder(2.0, 10)
+    knuckle = Cylinder(4.0, 10) - Cylinder(2.3, 10)
+    report = check_fit(pin, knuckle, clearance=0.3)
+    assert report.ok, report.problems
+
+
+def test_loose_pin_in_bore_fails_rattle():
+    pin = Cylinder(2.0, 10)
+    knuckle = Cylinder(4.0, 10) - Cylinder(2.6, 10)
+    report = check_fit(pin, knuckle, clearance=0.3)
+    assert any("rattle" in p for p in report.problems)
