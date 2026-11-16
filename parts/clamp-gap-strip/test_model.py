@@ -61,6 +61,9 @@ def test_each_gap_has_a_label_body_for_a_second_filament():
     assert set(found) == {name.replace("door-", "label-") for name in DOORS}
 
 
+LABEL_CLEARANCE = 0.02  # mm; far under a 0.5 mm line, so it doesn't print
+
+
 def test_labels_are_buried_in_the_strip_bottom():
     # PLA does not bond to PETG: each label sits on the bed under clear PETG, which locks it in.
     bodies = model.build()
@@ -68,8 +71,11 @@ def test_labels_are_buried_in_the_strip_bottom():
     for name, label in labels(bodies).items():
         box = label.bounding_box()
         assert box.min.Z == pytest.approx(0, abs=1e-6), name
-        assert not (label & strip).solids(), name
-        raised = Pos(0, 0, box.max.Z) * label  # the label's footprint, one label-depth up
+        # A hair clear of the strip, so the slicer's "split to parts" separates it.
+        # Slanted edges stand off less than square ones: at 45°, clearance/√2.
+        clear = strip.distance_to(label)
+        assert LABEL_CLEARANCE / 2 < clear <= LABEL_CLEARANCE + 1e-4, (name, clear)
+        raised = Pos(0, 0, box.max.Z + LABEL_CLEARANCE) * label  # its footprint, just above
         assert (raised & strip).volume == pytest.approx(raised.volume, rel=1e-3), name
 
 
@@ -85,7 +91,7 @@ def test_prints_without_supports():
         for face in body.faces():
             if face.bounding_box().min.Z < 1e-3:
                 continue  # on the bed
-            if any(face.distance_to(o) < 1e-6 for o in others):
+            if any(face.distance_to(o) < LABEL_CLEARANCE + 1e-4 for o in others):
                 continue  # rests on another body (the strip over a label)
             normal = face.normal_at(face.center())
             assert normal.Z >= limit, (name, face.center(), normal)

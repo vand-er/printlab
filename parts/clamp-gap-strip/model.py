@@ -10,7 +10,7 @@ The builders live in `printlab.collar`; the frame is the Test plate's.
 
 from dataclasses import dataclass, replace
 
-from build123d import Part, Pos, Text, extrude
+from build123d import Part, Pos, Rectangle, Sketch, Text, extrude
 
 from printlab.collar import (
     CollarParams,
@@ -41,6 +41,7 @@ class Params(CollarParams):
     label_depth: float = 0.3  # mm; white PLA labels on the bed, under clear PETG (they don't bond)
     underline: float = 0.5  # mm wide bar joining a label's glyphs into one body
     underline_overlap: float = 0.3  # mm the bar runs up into the glyphs
+    label_clearance: float = 0.02  # mm around each label; under a line width, so it doesn't print
 
 
 def door_name(gap: float) -> str:
@@ -71,14 +72,30 @@ def label_name(gap: float) -> str:
     return door_name(gap).replace("door-", "label-")
 
 
-def _label(p: Params, gap: float, x: float) -> Part:
-    """The gap, underlined, in the strip's bottom just behind the ring; read through the PETG."""
+def _outline(p: Params, gap: float, x: float) -> Sketch:
+    """The gap, underlined, behind the ring; the underline joins the glyphs into one piece."""
     y = -(outer_radius(p, bore(p, p.nominal_bore)) + p.label_size / 2)
-    glyphs = extrude(Text(f"{gap:.1f}", p.label_size), p.label_depth)
+    glyphs = Text(f"{gap:.1f}", p.label_size)
     g = glyphs.bounding_box()
     top = g.min.Y + p.underline_overlap
-    bar = box(g.min.X, g.max.X, top - p.underline, top, p.label_depth)
-    return Pos(x, y, 0) * (glyphs + bar)
+    bar = Pos((g.min.X + g.max.X) / 2, top - p.underline / 2) * Rectangle(g.size.X, p.underline)
+    return Pos(x, y) * (glyphs + bar)
+
+
+def _label(p: Params, gap: float, x: float) -> Part:
+    """White PLA on the bed, read through the PETG above it."""
+    return extrude(_outline(p, gap, x), p.label_depth)
+
+
+def _label_pocket(p: Params, gap: float, x: float) -> Part:
+    """The label's room in the strip, about a clearance wider and taller, so the slicer splits it
+    off. The label shifted each way, since a 2D offset fails on the font's curves."""
+    c = p.label_clearance
+    tall = extrude(_outline(p, gap, x), p.label_depth + c)
+    pocket = tall
+    for dx, dy in ((c, 0), (-c, 0), (0, c), (0, -c), (c, c), (c, -c), (-c, c), (-c, -c)):
+        pocket = pocket + Pos(dx, dy, 0) * tall
+    return pocket
 
 
 def _strip(p: Params) -> Part:
@@ -97,7 +114,7 @@ def _strip(p: Params) -> Part:
             x + r_o, x + reach.max.X + gap, reach.min.Y - gap, front + 1, p.plate_height + 1, -1
         )
         strip = strip + Pos(x, 0, 0) * cradle_stub(sample(p, gap), bore_d, p.collar_height)
-        strip = strip - _label(p, gap, x)
+        strip = strip - _label_pocket(p, gap, x)
         strip = strip - Pos(x, 0, 0) * bore_cut(bore_d, p.collar_height)
     return strip
 
