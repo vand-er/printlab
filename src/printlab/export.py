@@ -101,6 +101,8 @@ def _render_preview(
     halves = {}
     for body_name, body in bodies.items():
         half = body.split(cut, keep=Keep.TOP)
+        if isinstance(half, list):  # the cut left several separate pieces
+            half = Compound(children=half)
         if half is not None and half.volume > 0:
             halves[body_name] = half
 
