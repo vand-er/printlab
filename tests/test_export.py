@@ -38,6 +38,14 @@ def test_two_bodies_export_to_one_watertight_stl_and_round_tripping_step(tmp_pat
     assert sorted(round(s.volume, 1) for s in solids) == [392.7, 1005.3]
 
 
+def test_preview_section_handles_a_body_the_cut_splits_in_two(tmp_path):
+    # A U open towards +Y: the section plane at mid-Y leaves two separate prongs.
+    u_shape = Box(30, 20, 5) - Pos(0, 5, 0) * Box(10, 10, 5)
+    result = export_part({"u": u_shape, "pin": Pos(0, 5, 0) * Cylinder(2, 5)}, "u", tmp_path)
+
+    assert result.preview.exists()
+
+
 def test_export_estimates_grams_of_petg(tmp_path):
     result = export_part(Box(10, 10, 10), "cube", tmp_path)
 

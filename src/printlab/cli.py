@@ -22,7 +22,8 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(part_names()))
         return 0
 
-    bodies = named_parts(load_part(args.part).build(), args.part)
+    module = load_part(args.part)
+    bodies = named_parts(module.build(), args.part)
     failed = False
     for body_name, body in bodies.items():
         for problem in check_part(body).problems:
@@ -43,6 +44,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"   {prefix}holes: {', '.join(f'{d:g}' for d in holes)} mm")
     for path in (result.step, result.stl, result.glb, result.preview):
         print(f"   {path.relative_to(PARTS_DIR.parent)}")
+    # A part may set GRAM_BUDGET in its model.py; going over it warns but still exports.
+    budget = getattr(module, "GRAM_BUDGET", None)
+    if budget is not None and result.grams > budget:
+        print(
+            f"WARN {args.part}: about {result.grams:.1f} g is over the {budget:g} g budget",
+            file=sys.stderr,
+        )
     return 0
 
 
