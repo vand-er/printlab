@@ -44,6 +44,10 @@ _Avoid_: Lid, flap
 The hook that snaps a collar shut and holds it closed until its tab is pressed.
 _Avoid_: Clasp, catch, lock
 
+**Keeper**:
+The ramped block on a collar's fixed half that the latch's hook rides over and snaps behind.
+_Avoid_: Catch, strike
+
 **Lever**:
 The part that, flipped past centre with a snap, pulls the cart collar down a fixed distance and so sets the preload. It is flipped last and released first.
 _Avoid_: Cam, buckle, toggle

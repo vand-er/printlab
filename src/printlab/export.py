@@ -33,6 +33,7 @@ PALETTE = (
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#17becf",
     "#bcbd22", "#7f7f7f", "#393b79", "#ad494a",
 )
+LEGEND_COLUMNS = 9  # wider legends wrap into rows so every body name shows
 PETG_DENSITY = 1.27  # g/cm³
 
 
@@ -136,13 +137,15 @@ def _render_preview(
         ax.set_axis_off()
     x, y, z = hi - lo
     fig.suptitle(f"{title}  —  {x:.1f} × {y:.1f} × {z:.1f} mm")
+    columns = min(len(bodies), LEGEND_COLUMNS)
+    rows = -(-len(bodies) // columns)
     fig.legend(
         handles=[Patch(color=colours[n], label=n) for n in bodies],
         loc="lower center",
-        ncol=len(bodies),
+        ncol=columns,
         frameon=False,
     )
-    fig.tight_layout(rect=(0, 0.06, 1, 0.93))
+    fig.tight_layout(rect=(0, 0.06 * rows, 1, 0.93))
     fig.savefig(path)
     plt.close(fig)
 

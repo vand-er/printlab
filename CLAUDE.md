@@ -12,11 +12,14 @@ Parametric, agent-designed functional parts for a Bambu Lab X1C. Vocabulary is i
 ## Layout
 
 ```
-parts/<name>/model.py       Params dataclass + build(params) -> Part
+parts/<name>/model.py       Params dataclass + build(params, pose) -> Part or dict[str, Part]
 parts/<name>/test_model.py  assertions for this part (TDD)
 parts/<name>/out/           exported STEP, STL, PNG; committed
-src/printlab/checks.py        check_part(): one valid solid that fits the X1C; hole_diameters()
+src/printlab/checks.py        check_part(): one valid solid that fits the X1C; check_fit(); hole_diameters()
 src/printlab/export.py        export_part(): one Part or {name: Part} -> STEP, STL, GLB, coloured preview, grams
+src/printlab/collar.py        CollarParams, Pose; hinge, Latch, Battery and Cart collar builders
+src/printlab/clamp.py         ClampParams; Cradle, Lever, Link and linkage, shared by the Lever strip and Clamp
+src/printlab/nudge.py         the ±10 % Params nudge: nudged(), and audit() across worker processes
 ```
 
 Add a helper to `src/printlab/` only once a second part needs it.
