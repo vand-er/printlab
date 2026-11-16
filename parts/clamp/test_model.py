@@ -1,11 +1,11 @@
 import math
-from dataclasses import replace
 from itertools import combinations
 
 import pytest
 import trimesh
-from build123d import Axis, GeomType, Vector
+from build123d import Axis, Box, GeomType, Pos, Vector
 
+from printlab import nudge
 from printlab.checks import check_fit, check_part, hole_diameters
 from printlab.parts import load_part
 
@@ -149,10 +149,28 @@ def test_locked_lever_is_past_centre_and_lies_flat_on_its_stop(closed):
 SHARP = 115.0  # degrees; a convex edge whose faces meet at less than this is sharp
 
 
+def exposed_run(edge, others, reach):
+    """The longest stretch of `edge` farther than `reach` from every other body, judged on
+    points every SAMPLE mm, so an edge that only ends at a joint still counts as exposed."""
+    near = [o for o in others if edge.distance_to(o) <= reach]
+    if not near:
+        return edge.length
+    n = max(2, math.ceil(edge.length / SAMPLE) + 1)
+    run = best = 0
+    for i in range(n):
+        q = edge.position_at(i / (n - 1))
+        run = run + 1 if all(o.distance_to(q) > reach for o in near) else 0
+        best = max(best, run)
+    return max(0, best - 1) * edge.length / (n - 1)
+
+
+SAMPLE = 0.1  # mm between points judged along an edge
+
+
 def sharp_outside_edges(bodies, name, params):
     """Sharp convex edges of one body that face the outside: not a joint or parting line
-    (within the gap of another body), not in a bore, and longer than the run-out left
-    where two edge breaks meet."""
+    (within the gap of another body), not in a bore, with an exposed stretch longer than
+    the run-out left where two edge breaks meet."""
     body = bodies[name]
     solid = body.solids()[0]
     faces_of = {}
@@ -172,9 +190,9 @@ def sharp_outside_edges(bodies, name, params):
         between = 180 - math.degrees(math.acos(max(-1.0, min(1.0, n1.dot(n2)))))
         if between >= SHARP or solid.is_inside(q + (n1 - n2) * 0.01):  # blunt or concave
             continue
-        if any(edge.distance_to(o) <= params.gap + 0.1 for o in others):
+        if exposed_run(edge, others, params.gap + params.joint_margin) <= 2 * params.edge_break:
             continue
-        found.append((name, round(q.X, 2), round(q.Y, 2), round(q.Z, 2)))
+        found.append((name, round(edge.length, 2), round(q.X, 2), round(q.Y, 2), round(q.Z, 2)))
     return found
 
 
@@ -225,29 +243,58 @@ def is_ledge(body, x, y, z):
     )
 
 
-# Fields new to the full Clamp. The rest feed the shared builders and are nudged by the
-# Lever strip and the Test plate, which share them.
-CLAMP_FIELDS = ("stroke", "edge_break")
+@pytest.fixture(scope="module")
+def nudges():
+    """Every numeric field of the full Clamp's Params nudged ±10 %, edge breaks and all,
+    run once across worker processes: {(field, factor): problems}."""
+    return nudge.audit("clamp", FIT_PAIRS, ("closed", "open"))
 
 
-@pytest.mark.parametrize("factor", [0.9, 1.1])
-@pytest.mark.parametrize("field", CLAMP_FIELDS)
-def test_survives_plus_minus_ten_percent(field, factor):
+@pytest.mark.parametrize("factor", nudge.FACTORS)
+@pytest.mark.parametrize("field", nudge.numeric_fields(model.Params))
+def test_survives_plus_minus_ten_percent(field, factor, nudges):
+    assert nudges[(field, factor)] == []
+
+
+def test_slim_outline_fits_its_footprint_limit(closed):
     params = model.Params()
-    params = replace(params, **{field: getattr(params, field) * factor})
-    poses = {pose: model.build(params, pose) for pose in ("closed", "open")}
-    for pose, bodies in poses.items():
-        for name, body in bodies.items():
-            assert check_part(body).ok, (name, pose)
-        assert check_clamp(bodies, params) == [], pose
-    sharp = [e for name in BODIES for e in sharp_outside_edges(poses["closed"], name, params)]
-    assert sharp == []
-    drop = (poses["open"]["cart-body"].bounding_box().min.Z
-            - poses["closed"]["cart-body"].bounding_box().min.Z)
-    assert drop == pytest.approx(params.stroke, abs=0.01)
+    lo = [min(getattr(b.bounding_box().min, a) for b in closed.values()) for a in "XY"]
+    hi = [max(getattr(b.bounding_box().max, a) for b in closed.values()) for a in "XY"]
+    width, depth = hi[0] - lo[0], hi[1] - lo[1]
+    limit_x, limit_y = params.footprint_limit
+    assert width <= limit_x and depth <= limit_y
+    # The limit is a pocket size, not a loose bound: within 1 mm of the outline.
+    assert limit_x - width < 1 and limit_y - depth < 1
+
+
+def test_cradle_above_the_battery_collar_is_only_as_wide_as_the_rib_head(closed):
+    """Above the Battery collar the Cradle carries only the rib; the rest is trimmed."""
+    params = model.Params()
+    top = closed["cradle"].bounding_box().max.Z
+    z = (params.battery_collar_height + top) / 2
+    slab = Pos(0, 0, z) * Box(100, 100, 0.1)
+    assert (closed["cradle"] & slab).bounding_box().size.X <= params.rib_head_width + 1e-6
 
 
 MIN_WALL = 1.2  # mm, CLAUDE.md design rule for load-bearing walls
+
+
+def test_each_latch_arm_is_a_horizontal_beam_bending_in_the_layer_plane(closed):
+    params = model.Params()
+    arms = model.latch_arms(params)
+    assert set(arms) == {"battery-door", "cart-door"}
+    # Spec #10: the 12 mm Battery collar's Latch runs its full height.
+    assert arms["battery-door"].bounding_box().size.Z == pytest.approx(12.0)
+    for door, arm in arms.items():
+        # The arm belongs to its Door; the edge breaks shave only its corners.
+        assert (closed[door] & arm).volume > 0.95 * arm.volume, door
+        size = arm.bounding_box().size
+        thickness, length = sorted((size.X, size.Y))
+        # Long along a horizontal axis, thin along the other, tall in Z: it can only bend
+        # about Z, so it deflects within the XY (layer) plane.
+        assert length > 3 * thickness, door
+        assert size.Z > 2 * thickness, door
+        assert thickness >= MIN_WALL, door
 
 
 def test_no_load_bearing_wall_is_under_the_minimum(closed):
@@ -255,6 +302,6 @@ def test_no_load_bearing_wall_is_under_the_minimum(closed):
     for b in ("lever", "link"):
         size = closed[b].bounding_box().size
         assert size.X >= MIN_WALL and size.Y >= MIN_WALL, b
-    for field in ("wall", "knuckle_wall", "carriage_wall", "spine_depth", "lug_width"):
+    for field in ("wall", "knuckle_wall", "carriage_wall", "cradle_back_depth", "lug_width"):
         assert getattr(params, field) >= MIN_WALL, field
     assert params.pin_diameter >= 2 * MIN_WALL

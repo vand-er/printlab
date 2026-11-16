@@ -42,7 +42,7 @@ def pin_centres(body, radius):
     return found
 
 
-def toggle_pins(bodies, label, params):
+def linkage_pins(bodies, label, params):
     """(pivot, crank pin, Link pin) of one Clamp, from its Cradle, Lever and Cart collar."""
     r = params.pin_diameter / 2
     (pivot,) = pin_centres(bodies[f"cradle-{label}"], r)
@@ -58,8 +58,8 @@ def cross(o, a, b):
 def test_locked_lever_is_past_centre_on_the_locking_side_and_rests_on_its_stop(closed):
     params = model.Params()
     for label in STROKES:
-        pivot, crank, link = toggle_pins(closed, label, params)
-        # Not collinear: the crank pin sits about the overtravel (8°) past the pivot-Link line.
+        pivot, crank, link = linkage_pins(closed, label, params)
+        # Not collinear: the crank pin sits about the past_centre (8°) past the pivot-Link line.
         u = (pivot[0] - crank[0], pivot[1] - crank[1])
         v = (link[0] - pivot[0], link[1] - pivot[1])
         past = math.degrees(math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1]))
@@ -166,32 +166,32 @@ def test_no_load_bearing_wall_is_under_the_minimum(closed):
             assert box.size.X >= MIN_WALL and box.size.Y >= MIN_WALL, b
     assert params.knuckle_wall >= MIN_WALL  # ring around every pin
     assert params.pin_diameter >= 2 * MIN_WALL
-    assert params.spine_depth >= MIN_WALL
+    assert params.cradle_back_depth >= MIN_WALL
     assert params.lug_width >= MIN_WALL
 
 
 # Fields that feed the Lever, Link and the Cart collar's slide. The collar builders' own
 # fields are nudged by the Test plate, which shares them.
-TOGGLE_FIELDS = (
-    "toggle_x", "pivot_offset", "crank_radius", "link_length", "overtravel",
+LINKAGE_FIELDS = (
+    "lever_face_x", "pivot_offset", "crank_radius", "link_length", "past_centre",
     "link_pin_height", "lever_width", "link_width", "lug_width", "head_width", "head_size",
-    "spine_depth", "battery_collar_height", "gap", "pin_diameter", "knuckle_wall",
+    "cradle_back_depth", "battery_collar_height", "gap", "pin_diameter", "knuckle_wall",
 )
-TOGGLE_BODIES = ("cradle", "cart-body", "lever", "link")
+LINKAGE_BODIES = ("cradle", "cart-body", "lever", "link")
 
 
 @pytest.mark.parametrize("factor", [0.9, 1.1])
-@pytest.mark.parametrize("field", TOGGLE_FIELDS)
-def test_toggle_survives_plus_minus_ten_percent(field, factor):
+@pytest.mark.parametrize("field", LINKAGE_FIELDS)
+def test_linkage_survives_plus_minus_ten_percent(field, factor):
     params = model.Params()
     params = replace(params, **{field: getattr(params, field) * factor})
     stroke = max(params.strokes)  # the widest swing
     poses = {pose: model.clamp(params, stroke, pose) for pose in ("closed", "open")}
     for pose, bodies in poses.items():
-        bodies = {f"{n}-x": b for n, b in bodies.items() if n in TOGGLE_BODIES}
+        bodies = {f"{n}-x": b for n, b in bodies.items() if n in LINKAGE_BODIES}
         for name, body in bodies.items():
             assert check_part(body).ok, (name, pose)
-        pairs = tuple((a, b) for a, b in FIT_PAIRS if a in TOGGLE_BODIES and b in TOGGLE_BODIES)
+        pairs = tuple((a, b) for a, b in FIT_PAIRS if a in LINKAGE_BODIES and b in LINKAGE_BODIES)
         assert check_clamp(bodies, "x", params, pairs, others=False) == [], pose
     drop = (poses["open"]["cart-body"].bounding_box().min.Z
             - poses["closed"]["cart-body"].bounding_box().min.Z)
