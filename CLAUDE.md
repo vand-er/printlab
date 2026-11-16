@@ -16,7 +16,7 @@ parts/<name>/model.py       Params dataclass + build(params) -> Part
 parts/<name>/test_model.py  assertions for this part (TDD)
 parts/<name>/out/           exported STEP, STL, PNG; committed
 src/printlab/checks.py        check_part(): one valid solid that fits the X1C; hole_diameters()
-src/printlab/export.py        export_part(): STEP round-trip check, watertight STL, preview
+src/printlab/export.py        export_part(): one Part or {name: Part} -> STEP, STL, GLB, coloured preview, grams
 ```
 
 Add a helper to `src/printlab/` only once a second part needs it.
