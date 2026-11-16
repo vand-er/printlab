@@ -39,6 +39,7 @@ Add a helper to `src/printlab/` only once a second part needs it.
 ## The build123d MCP server (`.mcp.json`)
 
 - Register shapes with `show(part, "name")` so its tools can see them.
+- Before writing geometry, read the MCP resources `build123d://quickref` and `build123d://selectors`; when a solid fails, read `build123d://skill/repair`. Look anything else up in https://build123d.readthedocs.io/en/stable/llms.txt.
 - `install_skill` is denied in `.claude/settings.json`; leave it denied.
 - Its sandbox is not a security boundary, and its tip-over check gives false positives on clamps.
 - Use it to explore and measure. The part's source of truth is always `parts/<name>/model.py`.
