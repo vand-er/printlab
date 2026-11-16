@@ -2,7 +2,7 @@
 
 import copy
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import matplotlib
@@ -49,6 +49,7 @@ class ExportResult:
     preview: Path
     step_volume: float  # mm³, summed over the bodies read back from the STEP
     colours: dict[str, str]  # body name -> hex colour in the preview and GLB
+    separate_stls: dict[str, Path] = field(default_factory=dict)  # suffix -> STL for a second filament
 
     @property
     def grams(self) -> float:
@@ -61,7 +62,9 @@ def named_parts(parts: Parts, name: str) -> dict[str, Part]:
     return dict(parts) if isinstance(parts, Mapping) else {name: parts}
 
 
-def export_part(parts: Parts, name: str, out_dir: Path) -> ExportResult:
+def export_part(
+    parts: Parts, name: str, out_dir: Path, separate: Mapping[str, str] = {}
+) -> ExportResult:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     step, stl, glb, preview = (out_dir / f"{name}.{ext}" for ext in ("step", "stl", "glb", "png"))
@@ -83,14 +86,22 @@ def export_part(parts: Parts, name: str, out_dir: Path) -> ExportResult:
     ):
         raise ExportError(f"{step} does not round-trip to the same {len(expected)} solid(s)")
 
-    export_stl(assembly, str(stl), tolerance=0.01, angular_tolerance=0.1)
-    if not trimesh.load(stl).is_watertight:
-        raise ExportError(f"{stl} is not watertight")
+    # Bodies named by a `separate` prefix go to <name>-<suffix>.stl, for a second filament.
+    separate_stls = {suffix: out_dir / f"{name}-{suffix}.stl" for suffix in separate}
+    def group(body_name: str) -> str | None:
+        return next((s for s, prefix in separate.items() if body_name.startswith(prefix)), None)
+
+    for suffix, path in {None: stl, **separate_stls}.items():
+        own = [copy.copy(b) for n, b in bodies.items() if group(n) == suffix]  # stay in `assembly`
+        export_stl(Compound(children=own), str(path), tolerance=0.01, angular_tolerance=0.1)
+        if not trimesh.load(path).is_watertight:
+            raise ExportError(f"{path} is not watertight")
 
     export_gltf(assembly, str(glb), binary=True, linear_deflection=0.01)
     _render_preview(bodies, colours, preview, title=name)
     return ExportResult(
-        step=step, stl=stl, glb=glb, preview=preview, step_volume=sum(written), colours=colours
+        step=step, stl=stl, glb=glb, preview=preview, step_volume=sum(written), colours=colours,
+        separate_stls=separate_stls,
     )
 
 

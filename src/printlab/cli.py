@@ -32,7 +32,9 @@ def main(argv: list[str] | None = None) -> int:
     if failed:
         return 1
 
-    result = export_part(bodies, args.part, PARTS_DIR / args.part / "out")
+    # A part may set SEPARATE_STL = {suffix: body-name prefix} for bodies in a second filament.
+    separate = getattr(module, "SEPARATE_STL", {})
+    result = export_part(bodies, args.part, PARTS_DIR / args.part / "out", separate)
     size = Compound(children=list(bodies.values())).bounding_box().size
     print(
         f"OK {args.part}: {size.X:.1f} × {size.Y:.1f} × {size.Z:.1f} mm, "
@@ -42,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         if holes := hole_diameters(body):
             prefix = f"{body_name} " if len(bodies) > 1 else ""
             print(f"   {prefix}holes: {', '.join(f'{d:g}' for d in holes)} mm")
-    for path in (result.step, result.stl, result.glb, result.preview):
+    for path in (result.step, result.stl, *result.separate_stls.values(), result.glb, result.preview):
         print(f"   {path.relative_to(PARTS_DIR.parent)}")
     # A part may set GRAM_BUDGET in its model.py; going over it warns but still exports.
     budget = getattr(module, "GRAM_BUDGET", None)

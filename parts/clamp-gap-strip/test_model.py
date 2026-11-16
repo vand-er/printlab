@@ -3,6 +3,8 @@ from dataclasses import fields
 
 import pytest
 
+from build123d import Pos
+
 from printlab import nudge
 from printlab.checks import check_fit, check_part
 from printlab.collar import CollarParams
@@ -49,16 +51,42 @@ def test_every_body_is_one_valid_solid_that_fits_the_printer():
         assert report.ok, (name, report.problems)
 
 
+def labels(bodies):
+    return {name: body for name, body in bodies.items() if name.startswith("label-")}
+
+
+def test_each_gap_has_a_label_body_for_a_second_filament():
+    # The user prints the labels in white PLA, so each is its own body, one per Door.
+    found = labels(model.build())
+    assert set(found) == {name.replace("door-", "label-") for name in DOORS}
+
+
+def test_labels_are_buried_in_the_strip_bottom():
+    # PLA does not bond to PETG: each label sits on the bed under clear PETG, which locks it in.
+    bodies = model.build()
+    strip = bodies["strip"]
+    for name, label in labels(bodies).items():
+        box = label.bounding_box()
+        assert box.min.Z == pytest.approx(0, abs=1e-6), name
+        assert not (label & strip).solids(), name
+        raised = Pos(0, 0, box.max.Z) * label  # the label's footprint, one label-depth up
+        assert (raised & strip).volume == pytest.approx(raised.volume, rel=1e-3), name
+
+
 OVERHANG = 45.0  # degrees from vertical a face may lean before it needs support
 
 
 def test_prints_without_supports():
     limit = -math.sin(math.radians(OVERHANG)) - 1e-3
-    for name, body in model.build().items():
+    bodies = model.build()
+    for name, body in bodies.items():
+        others = [b for n, b in bodies.items() if n != name]
         assert body.bounding_box().min.Z == pytest.approx(0, abs=1e-6), name
         for face in body.faces():
             if face.bounding_box().min.Z < 1e-3:
                 continue  # on the bed
+            if any(face.distance_to(o) < 1e-6 for o in others):
+                continue  # rests on another body (the strip over a label)
             normal = face.normal_at(face.center())
             assert normal.Z >= limit, (name, face.center(), normal)
 

@@ -26,6 +26,7 @@ from printlab.collar import (
 )
 
 GRAM_BUDGET = 3.0  # g; the CLI warns above this
+SEPARATE_STL = {"labels": "label-"}  # the labels print in white PLA, from their own STL
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,9 @@ class Params(CollarParams):
     plate_width: float = 4.5  # mm, strip joining the stubs; carries the labels
     plate_height: float = 1.0  # mm; carries no load
     label_size: float = 3.5  # mm font size of the gap labels
-    label_relief: float = 0.4  # mm the labels stand up from the strip
+    label_depth: float = 0.3  # mm; white PLA labels on the bed, under clear PETG (they don't bond)
+    underline: float = 0.5  # mm wide bar joining a label's glyphs into one body
+    underline_overlap: float = 0.3  # mm the bar runs up into the glyphs
 
 
 def door_name(gap: float) -> str:
@@ -64,11 +67,18 @@ def _strip_y(p: Params) -> tuple[float, float]:
     return front - p.plate_width, front
 
 
+def label_name(gap: float) -> str:
+    return door_name(gap).replace("door-", "label-")
+
+
 def _label(p: Params, gap: float, x: float) -> Part:
-    """The gap, on the strip just behind the ring."""
+    """The gap, underlined, in the strip's bottom just behind the ring; read through the PETG."""
     y = -(outer_radius(p, bore(p, p.nominal_bore)) + p.label_size / 2)
-    text = Text(f"{gap:.1f}", p.label_size)
-    return Pos(x, y, p.plate_height) * extrude(text, p.label_relief)
+    glyphs = extrude(Text(f"{gap:.1f}", p.label_size), p.label_depth)
+    g = glyphs.bounding_box()
+    top = g.min.Y + p.underline_overlap
+    bar = box(g.min.X, g.max.X, top - p.underline, top, p.label_depth)
+    return Pos(x, y, 0) * (glyphs + bar)
 
 
 def _strip(p: Params) -> Part:
@@ -87,7 +97,7 @@ def _strip(p: Params) -> Part:
             x + r_o, x + reach.max.X + gap, reach.min.Y - gap, front + 1, p.plate_height + 1, -1
         )
         strip = strip + Pos(x, 0, 0) * cradle_stub(sample(p, gap), bore_d, p.collar_height)
-        strip = strip + _label(p, gap, x)
+        strip = strip - _label(p, gap, x)
         strip = strip - Pos(x, 0, 0) * bore_cut(bore_d, p.collar_height)
     return strip
 
@@ -100,4 +110,5 @@ def build(params: Params = Params(), pose: Pose | str = Pose.CLOSED) -> dict[str
         s = sample(params, gap)
         closed = door(s, bore_d, params.collar_height)
         bodies[door_name(gap)] = Pos(sample_x(params, i), 0, 0) * pose_door(s, closed, bore_d, pose)
+        bodies[label_name(gap)] = _label(params, gap, sample_x(params, i))
     return bodies

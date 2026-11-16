@@ -38,6 +38,19 @@ def test_two_bodies_export_to_one_watertight_stl_and_round_tripping_step(tmp_pat
     assert sorted(round(s.volume, 1) for s in solids) == [392.7, 1005.3]
 
 
+def test_bodies_for_a_second_filament_go_to_their_own_stl(tmp_path):
+    # An inlay touches its host, so one STL of both could not be watertight.
+    host = Box(20, 20, 2) - Pos(0, 0, -0.5) * Box(5, 5, 1)
+    bodies = {"host": host, "inlay-a": Pos(0, 0, -0.5) * Box(5, 5, 1)}
+    result = export_part(bodies, "plate", tmp_path, separate={"inlays": "inlay-"})
+
+    assert result.separate_stls == {"inlays": tmp_path / "plate-inlays.stl"}
+    host_mesh, inlay_mesh = trimesh.load(result.stl), trimesh.load(result.separate_stls["inlays"])
+    assert host_mesh.is_watertight and inlay_mesh.is_watertight
+    assert round(inlay_mesh.volume, 3) == 25.0
+    assert round(host_mesh.volume, 3) == 800 - 25.0
+
+
 def test_preview_section_handles_a_body_the_cut_splits_in_two(tmp_path):
     # A U open towards +Y: the section plane at mid-Y leaves two separate prongs.
     u_shape = Box(30, 20, 5) - Pos(0, 5, 0) * Box(10, 10, 5)
