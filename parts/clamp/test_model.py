@@ -149,10 +149,28 @@ def test_locked_lever_is_past_centre_and_lies_flat_on_its_stop(closed):
 SHARP = 115.0  # degrees; a convex edge whose faces meet at less than this is sharp
 
 
+def exposed_run(edge, others, reach):
+    """The longest stretch of `edge` farther than `reach` from every other body, judged on
+    points every SAMPLE mm, so an edge that only ends at a joint still counts as exposed."""
+    near = [o for o in others if edge.distance_to(o) <= reach]
+    if not near:
+        return edge.length
+    n = max(2, math.ceil(edge.length / SAMPLE) + 1)
+    run = best = 0
+    for i in range(n):
+        q = edge.position_at(i / (n - 1))
+        run = run + 1 if all(o.distance_to(q) > reach for o in near) else 0
+        best = max(best, run)
+    return max(0, best - 1) * edge.length / (n - 1)
+
+
+SAMPLE = 0.1  # mm between points judged along an edge
+
+
 def sharp_outside_edges(bodies, name, params):
     """Sharp convex edges of one body that face the outside: not a joint or parting line
-    (within the gap of another body), not in a bore, and longer than the run-out left
-    where two edge breaks meet."""
+    (within the gap of another body), not in a bore, with an exposed stretch longer than
+    the run-out left where two edge breaks meet."""
     body = bodies[name]
     solid = body.solids()[0]
     faces_of = {}
@@ -172,9 +190,9 @@ def sharp_outside_edges(bodies, name, params):
         between = 180 - math.degrees(math.acos(max(-1.0, min(1.0, n1.dot(n2)))))
         if between >= SHARP or solid.is_inside(q + (n1 - n2) * 0.01):  # blunt or concave
             continue
-        if any(edge.distance_to(o) <= params.gap + 0.1 for o in others):
+        if exposed_run(edge, others, params.gap + params.joint_margin) <= 2 * params.edge_break:
             continue
-        found.append((name, round(q.X, 2), round(q.Y, 2), round(q.Z, 2)))
+        found.append((name, round(edge.length, 2), round(q.X, 2), round(q.Y, 2), round(q.Z, 2)))
     return found
 
 

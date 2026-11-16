@@ -7,7 +7,8 @@ on the back (opposite the fire button), lying flat when locked.
 
 The geometry is the Lever strip's, from `printlab.clamp` (frame and builders described
 there), at one Stroke and without a label. For pocket carry every sharp outside edge
-(one not at a joint with another body, nor in a bore) gets a 45° chamfer of `edge_break`.
+(not in a bore, with a stretch clear of every other body) gets a 45° chamfer of
+`edge_break`; an edge that only ends at a joint is still an outside edge.
 The sections stay solid, for clear PETG.
 """
 
@@ -20,6 +21,9 @@ from printlab.clamp import ClampParams, battery_bore, cart_bore, locked_bodies, 
 from printlab.collar import Pose
 
 SHARP_ANGLE = 115.0  # degrees; a convex edge whose faces meet under this is sharp
+SAMPLE_STEP = 0.1  # mm, finest spacing of the points judged along an edge
+# Breaking an edge can bare the edge facing it on the next body, so the pass runs again.
+BREAK_PASSES = 2
 
 
 @dataclass(frozen=True)
@@ -28,7 +32,9 @@ class Params(ClampParams):
     stroke: float = 0.6  # mm, the Lever strip's pick
     # Pocket carry
     edge_break: float = 0.4  # mm, 45° chamfer on every sharp outside edge
-    joint_margin: float = 0.1  # mm past the gap within which an edge faces another body
+    # mm past the gap within which an edge faces another body; covers an edge diagonally
+    # across the gap from another body's edge (gap·√2)
+    joint_margin: float = 0.2
 
 
 def _faces_by_edge(body: Part) -> dict[Edge, list[Face]]:
@@ -54,9 +60,32 @@ def _into_faces(edge: Edge, faces: list[Face], at: float) -> tuple[Vector, Vecto
     return q, u1, u2
 
 
+def exposed_run(edge: Edge, others: list[Part], reach: float, step: float) -> float:
+    """The longest stretch of `edge` farther than `reach` from every other body.
+
+    Judged at points at least `step` apart; a point d from the nearest body shows the next
+    |d - reach| of edge is on the same side, so the walk strides over long clear stretches.
+    """
+    near = [o for o in others if edge.distance_to(o) <= reach]
+    if not near:
+        return edge.length
+    length, s, start, best = edge.length, 0.0, None, 0.0
+    while True:
+        d = min(o.distance_to(edge.position_at(s / length)) for o in near)
+        if d > reach:
+            start = s if start is None else start
+            best = max(best, s - start)
+        else:
+            start = None
+        if s >= length:
+            return best
+        s = min(length, s + max(step, abs(d - reach)))
+
+
 def sharp_outside_edges(p: Params, bodies: dict[str, Part], name: str) -> list[Edge]:
-    """Sharp convex edges of one body that face the outside: not a joint or parting line
-    (within the gap of another body) and not in a bore."""
+    """Sharp convex edges of one body that face the outside: not in a bore, and with a
+    stretch longer than the run-out where two breaks meet (2 `edge_break`) clear of every
+    other body. An edge that only ends at a joint or parting line still faces outside."""
     body = bodies[name]
     solid = body.solids()[0]
     others = [b for n, b in bodies.items() if n != name]
@@ -71,7 +100,9 @@ def sharp_outside_edges(p: Params, bodies: dict[str, Part], name: str) -> list[E
         between = 180 - math.degrees(math.acos(max(-1.0, min(1.0, n1.dot(n2)))))
         if between >= SHARP_ANGLE or solid.is_inside(q + (n1 - n2) * 0.01):
             continue
-        if any(edge.distance_to(o) <= p.gap + p.joint_margin for o in others):
+        reach = p.gap + p.joint_margin
+        run = exposed_run(edge, others, reach, SAMPLE_STEP)
+        if run < edge.length and run <= 2 * p.edge_break:
             continue
         found.append(edge)
     return found
@@ -126,19 +157,20 @@ def break_edges(p: Params, bodies: dict[str, Part]) -> dict[str, Part]:
     for name, body in bodies.items():
         failed = []
         for run in _runs(sharp_outside_edges(p, bodies, name)):
-            # Runs share no corners, so a chamfer leaves the other runs' edges as they were.
-            marks = [(e.position_at(0.5), e.length) for e in run]
+            # A chamfer may trim the end of a nearby edge in another run, so each edge is
+            # found again on the body as it now stands.
+            edges = [e for e in (_find(body, original) for original in run) if e is not None]
             try:
-                done = chamfer([_find(body, *m) for m in marks], p.edge_break)
+                done = chamfer(edges, p.edge_break)
                 if done.is_valid and len(done.solids()) == 1:
                     body = done
                     continue
             except Exception:  # OCC raises a bare Exception on a failed chamfer
                 pass
-            failed += marks
+            failed += run
         if failed:
             faces_of = _faces_by_edge(body)
-            edges = [_find(body, *m) for m in failed]
+            edges = [e for e in (_find(body, original) for original in failed) if e is not None]
             body = body - [
                 c for e in edges if (c := _cutter(body, e, faces_of[e], p.edge_break)) is not None
             ]
@@ -160,15 +192,29 @@ def _share_corner(a: Edge, b: Edge) -> bool:
     return any(u.is_same(v) for u in a.vertices() for v in b.vertices())
 
 
-def _find(body: Part, midpoint: Vector, length: float) -> Edge:
-    """The body's edge with this midpoint and length."""
-    return next(
-        e for e in body.edges()
-        if abs(e.length - length) < 1e-6 and (e.position_at(0.5) - midpoint).length < 1e-6
-    )
+def _find(body: Part, original: Edge) -> Edge | None:
+    """The body's edge that is, or is what is left of, `original`: the longest edge lying
+    on it. None if nothing of it is left."""
+    mid, box = original.position_at(0.5), original.bounding_box()
+    lo, hi = box.min - Vector(1e-3, 1e-3, 1e-3), box.max + Vector(1e-3, 1e-3, 1e-3)
+
+    def within(q: Vector) -> bool:
+        return lo.X <= q.X <= hi.X and lo.Y <= q.Y <= hi.Y and lo.Z <= q.Z <= hi.Z
+
+    nearby = [e for e in body.edges() if within(e.position_at(0.5))]
+    for e in nearby:
+        if abs(e.length - original.length) < 1e-6 and (e.position_at(0.5) - mid).length < 1e-6:
+            return e
+    on_it = [
+        e for e in nearby
+        if e.length > 1e-3 and all(original.distance_to(e.position_at(u)) < 1e-6 for u in (0, 0.5, 1))
+    ]
+    return max(on_it, key=lambda e: e.length, default=None)
 
 
 def build(params: Params = Params(), pose: Pose | str = Pose.CLOSED) -> dict[str, Part]:
     """The Clamp's named bodies in `pose` (see `Pose`)."""
-    bodies = break_edges(params, locked_bodies(params, params.stroke))
+    bodies = locked_bodies(params, params.stroke)
+    for _ in range(BREAK_PASSES):
+        bodies = break_edges(params, bodies)
     return pose_bodies(params, params.stroke, bodies, pose)

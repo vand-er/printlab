@@ -220,11 +220,12 @@ def _latch(p, bore_d: float, h: float) -> Part:
     y_root = y_hold + p.arm_length
     root = box(0, x1, y_root, y_root + p.arm_root, h)
     arm = box(x0, x1, y_tip, y_root + FUSE, h)
-    # Hook: square holding face, lead-in chamfer on the tip side.
+    # Hook: square holding face, lead-in chamfer on the tip side. The lead-in ends on the
+    # arm's corner, not inside the arm, so it leaves no sliver of the arm's face at the tip.
     lead = p.hook_length - p.hook_land
     hook = _prism(
         [(x0 + FUSE, y_hold), (x0 - p.keeper_depth, y_hold),
-         (x0 - p.keeper_depth, y_tip + lead), (x0 + FUSE, y_tip)],
+         (x0 - p.keeper_depth, y_tip + lead), (x0, y_tip)],
         h,
     )
     tab = box(x1 - FUSE, x1 + p.tab_reach, y_tip, y_tip + p.tab_width, h)
