@@ -1,10 +1,9 @@
-from dataclasses import fields, replace
-
 import pytest
 from build123d import Align, Axis, Box, Pos
 
 from printlab.checks import check_fit, check_part, hole_diameters
 from printlab.export import PETG_DENSITY
+from printlab.nudge import FACTORS, nudged, numeric_fields
 from printlab.parts import load_part
 
 model = load_part("clamp-test-plate")
@@ -75,19 +74,8 @@ def test_no_load_bearing_wall_is_under_the_minimum():
     assert params.pin_diameter >= 2 * MIN_WALL
 
 
-def nudged(params, field, factor):
-    value = getattr(params, field)
-    if isinstance(value, tuple):
-        value = tuple(v * factor for v in value)
-    elif isinstance(value, int):
-        value = round(value * factor)
-    else:
-        value = value * factor
-    return replace(params, **{field: value})
-
-
-@pytest.mark.parametrize("factor", [0.9, 1.1])
-@pytest.mark.parametrize("field", [f.name for f in fields(model.Params)])
+@pytest.mark.parametrize("factor", FACTORS)
+@pytest.mark.parametrize("field", numeric_fields(model.Params))
 def test_survives_plus_minus_ten_percent(field, factor):
     # Perturbation audit: nudging any dimension must not break a body or a fit.
     params = nudged(model.Params(), field, factor)

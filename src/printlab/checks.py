@@ -7,8 +7,9 @@ from build123d import GeomType, Part, Pos
 # Bambu Lab X1C build volume in mm (X, Y, Z). Bambu Studio caps Z at about 250.
 X1C_BUILD_VOLUME = (256.0, 256.0, 250.0)
 
-# Numerical slack in mm, so a gap modelled exactly at its clearance passes.
-FIT_TOLERANCE = 1e-6
+# Numerical slack in mm, so a gap modelled exactly at its clearance passes. OpenCascade's
+# distance next to a chamfer comes out up to about 3e-5 mm short.
+FIT_TOLERANCE = 1e-4
 
 # How far past its clearance a fit may be loose, in mm, before it rattles.
 RATTLE_DELTA = 0.05
@@ -62,7 +63,11 @@ def check_fit(a: Part, b: Part, clearance: float) -> Report:
     # Rattle test: shift b by clearance + delta toward a; a snug fit must collide.
     toward_a = (point_a - point_b).normalized()
     shifted = Pos(toward_a * (clearance + RATTLE_DELTA)) * b
-    if not (a & shifted).solids():
+    try:
+        collides = bool((a & shifted).solids())
+    except ValueError:  # OCC's boolean can fail on near-coincident faces; distance cannot
+        collides = a.distance_to(shifted) == 0
+    if not collides:
         report.problems.append(
             f"rattle: gap {gap:.3f} mm is looser than the {clearance:.3f} mm clearance"
             f" + {RATTLE_DELTA} mm"

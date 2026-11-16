@@ -1,11 +1,11 @@
 import math
-from dataclasses import replace
 from itertools import combinations
 
 import pytest
 import trimesh
-from build123d import Axis, GeomType, Vector
+from build123d import Axis, Box, GeomType, Pos, Vector
 
+from printlab import nudge
 from printlab.checks import check_fit, check_part, hole_diameters
 from printlab.parts import load_part
 
@@ -243,26 +243,37 @@ def is_ledge(body, x, y, z):
     )
 
 
-# Fields new to the full Clamp. The rest feed the shared builders and are nudged by the
-# Lever strip and the Test plate, which share them.
-CLAMP_FIELDS = ("stroke", "edge_break")
+@pytest.fixture(scope="module")
+def nudges():
+    """Every numeric field of the full Clamp's Params nudged ±10 %, edge breaks and all,
+    run once across worker processes: {(field, factor): problems}."""
+    return nudge.audit("clamp", FIT_PAIRS, ("closed", "open"))
 
 
-@pytest.mark.parametrize("factor", [0.9, 1.1])
-@pytest.mark.parametrize("field", CLAMP_FIELDS)
-def test_survives_plus_minus_ten_percent(field, factor):
+@pytest.mark.parametrize("factor", nudge.FACTORS)
+@pytest.mark.parametrize("field", nudge.numeric_fields(model.Params))
+def test_survives_plus_minus_ten_percent(field, factor, nudges):
+    assert nudges[(field, factor)] == []
+
+
+def test_slim_outline_fits_its_footprint_limit(closed):
     params = model.Params()
-    params = replace(params, **{field: getattr(params, field) * factor})
-    poses = {pose: model.build(params, pose) for pose in ("closed", "open")}
-    for pose, bodies in poses.items():
-        for name, body in bodies.items():
-            assert check_part(body).ok, (name, pose)
-        assert check_clamp(bodies, params) == [], pose
-    sharp = [e for name in BODIES for e in sharp_outside_edges(poses["closed"], name, params)]
-    assert sharp == []
-    drop = (poses["open"]["cart-body"].bounding_box().min.Z
-            - poses["closed"]["cart-body"].bounding_box().min.Z)
-    assert drop == pytest.approx(params.stroke, abs=0.01)
+    lo = [min(getattr(b.bounding_box().min, a) for b in closed.values()) for a in "XY"]
+    hi = [max(getattr(b.bounding_box().max, a) for b in closed.values()) for a in "XY"]
+    width, depth = hi[0] - lo[0], hi[1] - lo[1]
+    limit_x, limit_y = params.footprint_limit
+    assert width <= limit_x and depth <= limit_y
+    # The limit is a pocket size, not a loose bound: within 1 mm of the outline.
+    assert limit_x - width < 1 and limit_y - depth < 1
+
+
+def test_cradle_above_the_battery_collar_is_only_as_wide_as_the_rib_head(closed):
+    """Above the Battery collar the Cradle carries only the rib; the rest is trimmed."""
+    params = model.Params()
+    top = closed["cradle"].bounding_box().max.Z
+    z = (params.battery_collar_height + top) / 2
+    slab = Pos(0, 0, z) * Box(100, 100, 0.1)
+    assert (closed["cradle"] & slab).bounding_box().size.X <= params.rib_head_width + 1e-6
 
 
 MIN_WALL = 1.2  # mm, CLAUDE.md design rule for load-bearing walls

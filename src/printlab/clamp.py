@@ -316,7 +316,13 @@ def cradle(p: ClampParams, stroke: float) -> Part:
     hb = p.battery_collar_height
     top = cart_floor_z(p) + cart_collar_height(p)
     stub, _ = battery_collar(p)
-    cradle_back = box(-hw, p.lever_face_x, back, front, top)
+    # Its back runs full width up to the Battery collar's top, under the Cart collar and
+    # behind the lug and the Lever's stop; above, it carries only the rib, so it is only
+    # as wide as the rib's head.
+    head_hw = p.rib_head_width / 2
+    cradle_back = box(-hw, p.lever_face_x, back, front, hb) + box(
+        -head_hw, head_hw, back, front, top, z0=hb - EMBED
+    )
     ring_inside = -(outer_radius(p, battery_bore(p)) - p.wall / 2)
     web = box(-hw, p.lever_face_x, front - EMBED, ring_inside, hb)
     # The rib, with its neck run down into the web so it stands on it.

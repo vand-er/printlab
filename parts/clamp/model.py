@@ -14,8 +14,21 @@ The sections stay solid, for clear PETG.
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 
-from build123d import Axis, Edge, Face, GeomType, Part, Vector, Wire, chamfer, extrude, revolve
+from build123d import (
+    Axis,
+    Compound,
+    Edge,
+    Face,
+    GeomType,
+    Part,
+    Vector,
+    Wire,
+    chamfer,
+    extrude,
+    revolve,
+)
 
 from printlab.clamp import (
     ClampParams,
@@ -28,9 +41,10 @@ from printlab.clamp import (
 from printlab.collar import Pose
 
 SHARP_ANGLE = 115.0  # degrees; a convex edge whose faces meet under this is sharp
-SAMPLE_STEP = 0.1  # mm, finest spacing of the points judged along an edge
-# Breaking an edge can bare the edge facing it on the next body, so the pass runs again.
-BREAK_PASSES = 2
+# Breaking an edge can bare the edge facing it on the next body, so passes run until one
+# breaks nothing, each judging only edges near the last pass's breaks.
+MAX_BREAK_PASSES = 4
+SLIVER = 1e-3  # mm³; a solid this small left by a cut is a numerical scrap, dropped
 
 
 @dataclass(frozen=True)
@@ -38,6 +52,7 @@ class Params(ClampParams):
     # The shared Clamp sizes (`ClampParams`) start at the Test plate's middle bores.
     stroke: float = 0.6  # mm, the Lever strip's pick
     # Pocket carry
+    footprint_limit: tuple[float, float] = (27.0, 30.0)  # mm, X × Y the Clamp may cover
     edge_break: float = 0.4  # mm, 45° chamfer on every sharp outside edge
     # mm past the gap within which an edge faces another body; covers an edge diagonally
     # across the gap from another body's edge (gap·√2)
@@ -67,18 +82,17 @@ def _into_faces(edge: Edge, faces: list[Face], at: float) -> tuple[Vector, Vecto
     return q, u1, u2
 
 
-def exposed_run(edge: Edge, others: list[Part], reach: float, step: float) -> float:
-    """The longest stretch of `edge` farther than `reach` from every other body.
+def exposed_run(edge: Edge, others: Compound, reach: float, step: float) -> float:
+    """The longest stretch of `edge` farther than `reach` from the other bodies.
 
     Judged at points at least `step` apart; a point d from the nearest body shows the next
     |d - reach| of edge is on the same side, so the walk strides over long clear stretches.
     """
-    near = [o for o in others if edge.distance_to(o) <= reach]
-    if not near:
+    if edge.distance_to(others) > reach:
         return edge.length
     length, s, start, best = edge.length, 0.0, None, 0.0
     while True:
-        d = min(o.distance_to(edge.position_at(s / length)) for o in near)
+        d = others.distance_to(edge.position_at(s / length))
         if d > reach:
             start = s if start is None else start
             best = max(best, s - start)
@@ -89,13 +103,19 @@ def exposed_run(edge: Edge, others: list[Part], reach: float, step: float) -> fl
         s = min(length, s + max(step, abs(d - reach)))
 
 
-def sharp_outside_edges(p: Params, bodies: dict[str, Part], name: str) -> list[Edge]:
-    """Sharp convex edges of one body that face the outside: not in a bore, and with a
-    stretch longer than the run-out where two breaks meet (2 `edge_break`) clear of every
-    other body. An edge that only ends at a joint or parting line still faces outside."""
+def sharp_outside_edges(
+    p: Params, bodies: dict[str, Part], name: str, near: Compound | None = None,
+    tried: Compound | None = None,
+) -> list[Edge]:
+    """Sharp convex edges of one body that face the outside: not in a bore, and clear of
+    every other body for at least `edge_break`, so any stretch longer than the run-out
+    where two breaks meet (2 `edge_break`) is caught. An edge that only ends at a joint or
+    parting line still faces outside. With `near`, only edges near it are judged; edges
+    lying on one `tried` already (a run-out left by an earlier break) are left alone."""
     body = bodies[name]
     solid = body.solids()[0]
-    others = [b for n, b in bodies.items() if n != name]
+    others = Compound(children=[b for n, b in bodies.items() if n != name])
+    reach = p.gap + p.joint_margin
     found = []
     for edge, faces in _faces_by_edge(body).items():
         if len(faces) != 2 or edge.length < 1e-3:
@@ -107,9 +127,14 @@ def sharp_outside_edges(p: Params, bodies: dict[str, Part], name: str) -> list[E
         between = 180 - math.degrees(math.acos(max(-1.0, min(1.0, n1.dot(n2)))))
         if between >= SHARP_ANGLE or solid.is_inside(q + (n1 - n2) * 0.01):
             continue
-        reach = p.gap + p.joint_margin
-        run = exposed_run(edge, others, reach, SAMPLE_STEP)
-        if run < edge.length and run <= 2 * p.edge_break:
+        if near is not None and edge.distance_to(near) > reach + p.edge_break:
+            continue
+        if tried is not None and all(
+            tried.distance_to(edge.position_at(u)) < 1e-6 for u in (0, 0.5, 1)
+        ):
+            continue
+        run = exposed_run(edge, others, reach, p.edge_break)
+        if run < edge.length and run < p.edge_break:
             continue
         found.append(edge)
     return found
@@ -154,16 +179,32 @@ def _cutter(body: Part, edge: Edge, faces: list[Face], size: float) -> Part | No
 
 
 def break_edges(p: Params, bodies: dict[str, Part]) -> dict[str, Part]:
-    """Every body with each sharp outside edge chamfered by `edge_break`.
+    """Every body with each sharp outside edge chamfered by `edge_break`."""
+    near, tried = None, []
+    for _ in range(MAX_BREAK_PASSES):
+        bodies, broken = _break_pass(p, bodies, near, Compound(children=tried) if tried else None)
+        if not broken:
+            break
+        near, tried = Compound(children=broken), tried + broken
+    return bodies
+
+
+def _break_pass(
+    p: Params, bodies: dict[str, Part], near: Compound | None, tried: Compound | None
+) -> tuple[dict[str, Part], list[Edge]]:
+    """(bodies, edges broken): one pass of `break_edges`, judging only edges `near` the
+    last pass's breaks (all edges on the first pass) and not `tried` already.
 
     OpenCascade's chamfer gives the cleanest corners, so each run of edges that share
     corners is chamfered by it; where it fails on a run, each edge's chamfer is cut out as
     a swept triangle instead.
     """
-    broken = {}
+    broken, edges_broken = {}, []
     for name, body in bodies.items():
         failed = []
-        for run in _runs(sharp_outside_edges(p, bodies, name)):
+        sharp = sharp_outside_edges(p, bodies, name, near, tried)
+        edges_broken += sharp
+        for run in _runs(sharp):
             # A chamfer may trim the end of a nearby edge in another run, so each edge is
             # found again on the body as it now stands.
             edges = [e for e in (_find(body, original) for original in run) if e is not None]
@@ -181,8 +222,16 @@ def break_edges(p: Params, bodies: dict[str, Part]) -> dict[str, Part]:
             body = body - [
                 c for e in edges if (c := _cutter(body, e, faces_of[e], p.edge_break)) is not None
             ]
-        broken[name] = body
-    return broken
+        broken[name] = _without_slivers(body)
+    return broken, edges_broken
+
+
+def _without_slivers(body: Part) -> Part:
+    """The body less any sliver solid a cut left beside it."""
+    solids = body.solids()
+    if len(solids) < 2 or sorted(s.volume for s in solids)[-2] > SLIVER:
+        return body
+    return Part(Compound(children=[max(solids, key=lambda s: s.volume)]).wrapped)
 
 
 def _runs(edges: list[Edge]) -> list[list[Edge]]:
@@ -219,9 +268,13 @@ def _find(body: Part, original: Edge) -> Edge | None:
     return max(on_it, key=lambda e: e.length, default=None)
 
 
+@lru_cache(maxsize=4)
+def _printed(params: Params) -> dict[str, Part]:
+    """The bodies as printed, edges broken. Cached: breaking takes most of a build, and
+    each pose of the same Params reuses it."""
+    return break_edges(params, locked_bodies(params, params.stroke))
+
+
 def build(params: Params = Params(), pose: Pose | str = Pose.CLOSED) -> dict[str, Part]:
     """The Clamp's named bodies in `pose` (see `Pose`)."""
-    bodies = locked_bodies(params, params.stroke)
-    for _ in range(BREAK_PASSES):
-        bodies = break_edges(params, bodies)
-    return pose_bodies(params, params.stroke, bodies, pose)
+    return pose_bodies(params, params.stroke, _printed(params), pose)
