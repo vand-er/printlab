@@ -25,7 +25,20 @@ link_width, lug_width, head_width and head_size.
 import math
 from dataclasses import dataclass
 
-from build123d import Align, Axis, Cylinder, Part, Plane, Polygon, Pos, Rot, extrude
+from build123d import (
+    Align,
+    Axis,
+    Cylinder,
+    Edge,
+    Face,
+    Part,
+    Plane,
+    Polygon,
+    Pos,
+    Rot,
+    Wire,
+    extrude,
+)
 
 from printlab.collar import (
     bore,
@@ -202,6 +215,53 @@ def _hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
     return lower[:-1] + upper[:-1]
 
 
+Disc = tuple[tuple[float, float], float]  # ((y, z), radius); radius 0 is a corner
+
+
+def _disc_hull_prism(discs: list[Disc], x0: float, x1: float) -> Part:
+    """The convex hull of discs in the YZ plane, with true arcs and tangent lines, swept
+    along X from x0 to x1. True arcs, not facets, so its edges chamfer cleanly."""
+    # Which discs the hull runs round, in order: from the hull of finely faceted discs.
+    owner = {}
+    for i in sorted(range(len(discs)), key=lambda i: discs[i][1]):  # larger discs win ties
+        (y, z), r = discs[i]
+        points = _circle((y, z), r, 720) if r > 0 else [(y, z)]
+        owner.update({(round(a, 9), round(b, 9)): i for a, b in points})
+    order = [owner[q] for q in _hull(list(owner))]
+    order = [i for k, i in enumerate(order) if i != order[k - 1]]
+
+    def tangent(a: Disc, b: Disc) -> tuple[tuple[float, float], tuple[float, float]]:
+        """Points where the outer tangent from a to b (hull on its left) touches each."""
+        (ya, za), ra = a
+        (yb, zb), rb = b
+        dy, dz = yb - ya, zb - za
+        length = math.hypot(dy, dz)
+        c = (ra - rb) / length
+        s = math.sqrt(max(0.0, 1 - c * c))
+        ny = c * dy / length + s * dz / length
+        nz = c * dz / length - s * dy / length
+        return (ya + ra * ny, za + ra * nz), (yb + rb * ny, zb + rb * nz)
+
+    lines = [tangent(discs[a], discs[b]) for a, b in zip(order, order[1:] + order[:1])]
+    edges = []
+    for k, i in enumerate(order):
+        (y, z), r = discs[i]
+        start, end = lines[k - 1][1], lines[k][0]  # arrive from the last line, leave on the next
+        if r > 0:
+            a0 = math.atan2(start[1] - z, start[0] - y)
+            a1 = math.atan2(end[1] - z, end[0] - y)
+            sweep = (a1 - a0) % (2 * math.pi)
+            if sweep > 1e-6:
+                mid = a0 + sweep / 2
+                edges.append(Edge.make_three_point_arc(
+                    (x0, *start), (x0, y + r * math.cos(mid), z + r * math.sin(mid)), (x0, *end)
+                ))
+        if math.dist(lines[k][0], lines[k][1]) > 1e-6:
+            edges.append(Edge.make_line((x0, *lines[k][0]), (x0, *lines[k][1])))
+    face = Face(Wire(edges))
+    return extrude(face, amount=x1 - x0, dir=(1, 0, 0))
+
+
 def _rect(y0: float, y1: float, z0: float, z1: float) -> list[tuple[float, float]]:
     return [(y0, z0), (y1, z0), (y1, z1), (y0, z1)]
 
@@ -267,12 +327,9 @@ def lever(p, t: Toggle) -> Part:
     back, _ = spine_y(p)
     c = t.crank(t.locked)
     rb = _boss_radius(p)
-    outline = _hull(
-        _circle(t.pivot, _eye_radius(p)) + _circle(c, rb)
-        + _rect(c[0] - rb, back - p.gap, 0, t.pivot[1])
-    )
+    corners = [(q, 0.0) for q in _rect(c[0] - rb, back - p.gap, 0, t.pivot[1])]
     x0, x1 = layers(p)["lever"]
-    body = _yz_prism(outline, x0, x1)
+    body = _disc_hull_prism([(t.pivot, _eye_radius(p)), (c, rb)] + corners, x0, x1)
     body = body - _x_pin(p.pin_diameter / 2 + p.gap, t.pivot, x0 - 1, x1 + 1)
     return body + _pin_with_head(p, c, x1 - 0.5)
 
@@ -282,10 +339,11 @@ def link(p, t: Toggle) -> Part:
     crank eye down to the bed."""
     c, l_pin = t.crank(t.locked), t.link_pin(t.locked)
     re = _eye_radius(p)
-    outline = _hull(_circle(c, re) + _circle(l_pin, re) + _rect(c[0] - re, c[0] + re, 0, c[1]))
+    corners = [(q, 0.0) for q in _rect(c[0] - re, c[0] + re, 0, c[1])]
     x0, x1 = layers(p)["link"]
     hole = p.pin_diameter / 2 + p.gap
-    return _yz_prism(outline, x0, x1) - _x_pin(hole, c, x0 - 1, x1 + 1) - _x_pin(
+    outline = _disc_hull_prism([(c, re), (l_pin, re)] + corners, x0, x1)
+    return outline - _x_pin(hole, c, x0 - 1, x1 + 1) - _x_pin(
         hole, l_pin, x0 - 1, x1 + 1
     )
 
