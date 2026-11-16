@@ -255,6 +255,6 @@ def test_no_load_bearing_wall_is_under_the_minimum(closed):
     for b in ("lever", "link"):
         size = closed[b].bounding_box().size
         assert size.X >= MIN_WALL and size.Y >= MIN_WALL, b
-    for field in ("wall", "knuckle_wall", "carriage_wall", "spine_depth", "lug_width"):
+    for field in ("wall", "knuckle_wall", "carriage_wall", "cradle_back_depth", "lug_width"):
         assert getattr(params, field) >= MIN_WALL, field
     assert params.pin_diameter >= 2 * MIN_WALL

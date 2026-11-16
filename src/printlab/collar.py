@@ -1,22 +1,74 @@
 """Collar builders shared by the Clamp and its test prints: hinge, Latch, Battery and Cart collars.
 
-Each builder takes the part's flat `Params` (any object with the fields below), the bore
-and the collar height, so every part can reuse them at its own sizes.
+Each builder takes the part's `Params` (a `CollarParams`), the bore and the collar height,
+so every part can reuse them at its own sizes.
 
 Collar frame (closed pose): bore centred on the Z axis, Door on +Y, fixed half (the
 Cradle stub) on -Y, hinge on -X, Latch on +X. The Door opens anticlockwise (seen from
 above) about the hinge axis. Everything stands on z = 0.
-
-Fields used: fdm_offset, wall, gap, open_angle; pin_diameter, knuckle_wall, knuckle_cone,
-knuckle_facets; latch_height, arm_thickness, arm_length, arm_root, catch_depth, catch_ramp,
-catch_flat, hook_length, hook_land, tab_width, tab_reach; and for the Cart collar
-brass_height, brass_margin, glass_diameter, lip_clearance, lip_thickness, travel,
-rib_width, rib_head_width, rib_head_depth, rib_reach, carriage_wall.
 """
 
 import math
+from dataclasses import dataclass
+from enum import StrEnum
 
 from build123d import Align, Axis, Box, Cylinder, Part, Plane, Polygon, Pos, RegularPolygon, extrude
+
+# Pure modelling tolerances, not part sizes.
+FUSE = 0.01  # mm two solids overlap so they fuse into one
+EMBED = 0.5  # mm a joining feature runs into the body it joins
+SPIKE_TIP = 0.05  # mm, flat top of a knuckle spike, inside the pin, so it never ends in a point
+LIP_MIN_STEP = 0.02  # mm, on the diameter: a lip any narrower than this is left out
+
+
+class Pose(StrEnum):
+    CLOSED = "closed"  # as printed: Doors shut (and a Clamp's Lever locked)
+    OPEN = "open"  # Doors swung open (and a Clamp's Lever open)
+    CENTRE = "centre"  # Doors shut, a Clamp's Lever at dead centre
+
+
+class Slide(StrEnum):
+    BOTTOM = "bottom"  # the Cart collar at the bottom of its slide, as printed
+    TOP = "top"  # at the top, against the stop
+
+
+@dataclass(frozen=True)
+class CollarParams:
+    """The sizes every collar builder reads; each part's `Params` extends it."""
+
+    fdm_offset: float = 0.2  # mm added to each bore; FDM holes print undersize
+    wall: float = 1.3  # mm, collar ring wall (load-bearing)
+    gap: float = 0.3  # mm, print-in-place clearance everywhere
+    open_angle: float = 90.0  # degrees each Door swings in the open pose
+    # Hinge: three knuckles, stub-Door-stub, with an integral pin on the stub
+    pin_diameter: float = 2.4  # mm, every pin (load-bearing)
+    knuckle_wall: float = 1.2  # mm, ring around each pin (load-bearing)
+    knuckle_cone: float = 45.0  # degrees from vertical; spiked knuckle ends print unsupported
+    knuckle_facets: int = 16  # facets around each knuckle spike
+    # Latch: horizontal hook arm on the Door, keeper on the stub
+    latch_height: float = 4.5  # mm, arm height from the bed
+    arm_thickness: float = 1.4  # mm, radial; the arm bends in the XY plane
+    arm_length: float = 8.0  # mm, free beam from root to hook; about 2.6 % strain to snap
+    arm_root: float = 2.0  # mm, root block joining the arm to the Door
+    keeper_depth: float = 0.8  # mm the hook engages behind the keeper
+    keeper_ramp: float = 2.5  # mm lead-in ramp the hook rides over
+    keeper_flat: float = 1.0  # mm flat top of the keeper
+    hook_length: float = 1.5  # mm along the arm
+    hook_land: float = 0.5  # mm flat at the hook's tip; the rest is lead-in chamfer
+    tab_width: float = 1.5  # mm thumb tab along the arm
+    tab_reach: float = 2.5  # mm the thumb tab stands out from the arm
+    # Cart collar. Cart sizes are estimates; the brass height is a ruler reading.
+    brass_height: float = 10.0  # mm, Seat to ledge
+    brass_margin: float = 1.0  # mm the collar stops short of the brass height
+    glass_diameter: float = 11.9  # mm, glass tank above the ledge
+    lip_clearance: float = 0.1  # mm per side between the lip and the glass
+    lip_thickness: float = 0.8  # mm, lip at the collar top; rests on the ledge
+    slide: float = 2.0  # mm the collar may slide on its rib; a Clamp's Stroke uses part of it
+    rib_width: float = 2.0  # mm, the rib's neck
+    rib_head_width: float = 5.0  # mm, the rib's T head inside the carriage
+    rib_head_depth: float = 1.2  # mm
+    rib_reach: float = 1.0  # mm of neck between the Cradle's back and the carriage
+    carriage_wall: float = 1.2  # mm, carriage walls and roof (load-bearing)
 
 
 def bore(p, nominal: float) -> float:
@@ -51,9 +103,8 @@ def _below_spike(p, apex: float) -> Part:
     """
     slope = math.tan(math.radians(p.knuckle_cone))  # mm inward per mm up
     bottom = -1.0
-    tip = 0.05  # flat top, inside the pin, so the spike never degenerates to a point
-    rise = (apex - bottom) - tip / slope
-    base = RegularPolygon(tip + rise * slope, p.knuckle_facets, major_radius=False)
+    rise = (apex - bottom) - SPIKE_TIP / slope
+    base = RegularPolygon(SPIKE_TIP + rise * slope, p.knuckle_facets, major_radius=False)
     return Pos(0, 0, bottom) * extrude(base, rise, taper=p.knuckle_cone)
 
 
@@ -135,18 +186,18 @@ def _prism(points: list[tuple[float, float]], height: float) -> Part:
     return extrude(Polygon(*points, align=None), height, dir=(0, 0, 1))
 
 
-def _catch_far_y(p) -> float:
-    """|y| of the catch's holding face, behind which the hook sits."""
-    return p.gap / 2 + p.catch_ramp + p.catch_flat
+def _keeper_far_y(p) -> float:
+    """|y| of the keeper's holding face, behind which the hook sits."""
+    return p.gap / 2 + p.keeper_ramp + p.keeper_flat
 
 
 def _arm_inner_x(p, bore_d: float) -> float:
-    return outer_radius(p, bore_d) + p.catch_depth + p.gap
+    return outer_radius(p, bore_d) + p.keeper_depth + p.gap
 
 
 def _hook_face_y(p) -> float:
-    """y of the hook face that bears on the catch."""
-    return -(_catch_far_y(p) + p.gap)
+    """y of the hook face that bears on the keeper."""
+    return -(_keeper_far_y(p) + p.gap)
 
 
 def latch_arm(p, bore_d: float, latch_height: float | None = None) -> Part:
@@ -168,25 +219,25 @@ def _latch(p, bore_d: float, h: float) -> Part:
     y_tip = y_hold - p.hook_length
     y_root = y_hold + p.arm_length
     root = box(0, x1, y_root, y_root + p.arm_root, h)
-    arm = box(x0, x1, y_tip, y_root + 0.01, h)
+    arm = box(x0, x1, y_tip, y_root + FUSE, h)
     # Hook: square holding face, lead-in chamfer on the tip side.
     lead = p.hook_length - p.hook_land
     hook = _prism(
-        [(x0 + 0.01, y_hold), (x0 - p.catch_depth, y_hold),
-         (x0 - p.catch_depth, y_tip + lead), (x0 + 0.01, y_tip)],
+        [(x0 + FUSE, y_hold), (x0 - p.keeper_depth, y_hold),
+         (x0 - p.keeper_depth, y_tip + lead), (x0 + FUSE, y_tip)],
         h,
     )
-    tab = box(x1 - 0.01, x1 + p.tab_reach, y_tip, y_tip + p.tab_width, h)
+    tab = box(x1 - FUSE, x1 + p.tab_reach, y_tip, y_tip + p.tab_width, h)
     return root + arm + hook + tab
 
 
-def _catch(p, bore_d: float, h: float) -> Part:
-    """Stub side of the Latch: a ramped catch on the ring's outer face."""
+def _keeper(p, bore_d: float, h: float) -> Part:
+    """Stub side of the Latch: a ramped keeper on the ring's outer face."""
     r_o = outer_radius(p, bore_d)
     y_near = -p.gap / 2
-    y_ramp = y_near - p.catch_ramp
-    y_far = -_catch_far_y(p)
-    top = r_o + p.catch_depth
+    y_ramp = y_near - p.keeper_ramp
+    y_far = -_keeper_far_y(p)
+    top = r_o + p.keeper_depth
     return _prism(
         [(r_o - p.wall / 2, y_near), (r_o, y_near), (top, y_ramp), (top, y_far),
          (r_o - p.wall / 2, y_far)],
@@ -195,12 +246,12 @@ def _catch(p, bore_d: float, h: float) -> Part:
 
 
 def cradle_stub(p, bore_d: float, height: float, latch_height: float | None = None) -> Part:
-    """The fixed half of a collar: half ring, hinge knuckles with pin, and the catch."""
+    """The fixed half of a collar: half ring, hinge knuckles with pin, and the keeper."""
     h = p.latch_height if latch_height is None else latch_height
     zones = _hinge_zones(p, height, hinge_axis_x(p, bore_d))
     body = _half_ring(p, bore_d, height, -1) + _hinge_web(p, bore_d, height, -1)
     body = body - zones["door_keepout"] + zones["stub_knuckles"]
-    body = body + _catch(p, bore_d, h)
+    body = body + _keeper(p, bore_d, h)
     return body - bore_cut(bore_d, height)
 
 
@@ -214,14 +265,12 @@ def door(p, bore_d: float, height: float, latch_height: float | None = None) -> 
     return body - bore_cut(bore_d, height)
 
 
-def pose_door(p, part: Part, bore_d: float, pose: str) -> Part:
-    """The Door as printed ("closed") or swung open about its hinge ("open")."""
-    if pose == "closed":
+def pose_door(p, part: Part, bore_d: float, pose: Pose | str) -> Part:
+    """The Door as printed, or swung open about its hinge in the open pose."""
+    if Pose(pose) != Pose.OPEN:
         return part
-    if pose == "open":
-        axis = Axis((hinge_axis_x(p, bore_d), 0, 0), (0, 0, 1))
-        return part.rotate(axis, p.open_angle)
-    raise ValueError(f"unknown pose {pose!r}")
+    axis = Axis((hinge_axis_x(p, bore_d), 0, 0), (0, 0, 1))
+    return part.rotate(axis, p.open_angle)
 
 
 # --- Cart collar: a sliding body on a T-headed rib, and a Door ---
@@ -235,10 +284,10 @@ def cart_collar_height(p) -> float:
 def _lip(p, bore_d: float, height: float, side: int) -> Part | None:
     """The lip at the collar top on one side of the split, or None if it clears the bore."""
     lip_d = p.glass_diameter + 2 * p.lip_clearance
-    if lip_d >= bore_d - 0.02:
+    if lip_d >= bore_d - LIP_MIN_STEP:
         return None
     ring = Pos(0, 0, height - p.lip_thickness) * (
-        Cylinder(bore_d / 2 + 0.01, p.lip_thickness, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        Cylinder(bore_d / 2 + FUSE, p.lip_thickness, align=(Align.CENTER, Align.CENTER, Align.MIN))
         - Cylinder(lip_d / 2, 3 * p.lip_thickness)
     )
     return ring & _half_ring(p, bore_d, height, side)
@@ -250,7 +299,7 @@ def _with_lip(p, part: Part, bore_d: float, height: float, side: int) -> Part:
 
 
 def carriage_back_y(p, bore_d: float) -> float:
-    """y of the carriage's back face, which faces the spine."""
+    """y of the carriage's back face, which faces the Cradle's back."""
     depth = p.carriage_wall + p.rib_head_depth + 2 * p.gap
     return -(outer_radius(p, bore_d) + depth)
 
@@ -267,9 +316,9 @@ def _head_y(p, bore_d: float) -> tuple[float, float]:
 
 
 def _head_bottom_z(p) -> float:
-    """z of the head's underside at the bottom of travel: above the carriage's tooth
-    (`carriage_wall` tall at its lowest) by the travel and the gap."""
-    return p.carriage_wall + p.travel + p.gap
+    """z of the head's underside at the bottom of the slide: above the carriage's tooth
+    (`carriage_wall` tall at its lowest) by the slide and the gap."""
+    return p.carriage_wall + p.slide + p.gap
 
 
 def _xz_prism(points: list[tuple[float, float]], y0: float, y1: float) -> Part:
@@ -279,15 +328,15 @@ def _xz_prism(points: list[tuple[float, float]], y0: float, y1: float) -> Part:
 
 
 def cart_rib(p, bore_d: float, height: float) -> Part:
-    """The Cradle's T-headed rib the Cart collar slides on, from the spine to its head.
+    """The Cradle's T-headed rib the Cart collar slides on, from the Cradle's back to its head.
 
     The head's flanges start above a tooth on the carriage and taper in at 45° underneath,
-    so they print unsupported; at the top of travel the tooth is `gap` (normal to the
+    so they print unsupported; at the top of the slide the tooth is `gap` (normal to the
     45° faces) below them, which is the upper stop.
     """
     a, b = p.rib_width / 2, p.rib_head_width / 2
     y_back, y_front = _head_y(p, bore_d)
-    y0 = carriage_back_y(p, bore_d) - p.rib_reach - 0.5  # 0.5 mm into the spine
+    y0 = carriage_back_y(p, bore_d) - p.rib_reach - EMBED  # into the Cradle's back
     neck = box(-a, a, y0, y_front, height)
     zb = _head_bottom_z(p)
     head = _xz_prism(
@@ -299,12 +348,12 @@ def cart_rib(p, bore_d: float, height: float) -> Part:
 
 def _slot(p, bore_d: float, height: float) -> Part:
     """The carriage's cut: the rib grown by `gap`, with the head's cavity run down by
-    the travel so the head clears it anywhere along the travel."""
+    the slide so the head clears it anywhere along it."""
     a, b, g = p.rib_width / 2, p.rib_head_width / 2, p.gap
     y_back, y_front = _head_y(p, bore_d)
     neck = Pos(0, 0, -1) * box(-a - g, a + g, carriage_back_y(p, bore_d) - 1, y_front + g, height + 2)
-    # The head outline, each edge offset outward by g, then lowered by the travel.
-    zb = _head_bottom_z(p) - p.travel
+    # The head outline, each edge offset outward by g, then lowered by the slide.
+    zb = _head_bottom_z(p) - p.slide
     x_low = a + g * (math.sqrt(2) - 1)
     z_side = zb + (b - a) + g * (1 - math.sqrt(2))
     top = height + 1
@@ -317,8 +366,8 @@ def _slot(p, bore_d: float, height: float) -> Part:
 
 
 def cart_body(p, bore_d: float, height: float) -> Part:
-    """The Cart collar's sliding body at the bottom of travel: the stub's half ring,
-    hinge and catch, a lip, and a carriage with a T-slot around the rib."""
+    """The Cart collar's sliding body at the bottom of its slide: the stub's half ring,
+    hinge and keeper, a lip, and a carriage with a T-slot around the rib."""
     hw = carriage_half_width(p)
     y_in = -(outer_radius(p, bore_d) - p.wall / 2)  # inside the ring wall
     carriage = box(-hw, hw, carriage_back_y(p, bore_d), y_in, height)
@@ -332,12 +381,10 @@ def cart_door(p, bore_d: float, height: float) -> Part:
     return _with_lip(p, door(p, bore_d, height), bore_d, height, +1)
 
 
-def travel_z(p, travel: str | float) -> float:
-    """How far the Cart collar sits above the bottom of its travel: "bottom", "top" or mm."""
-    if travel == "bottom":
-        return 0.0
-    if travel == "top":
-        return p.travel
-    if isinstance(travel, (int, float)) and 0 <= travel <= p.travel:
-        return float(travel)
-    raise ValueError(f"unknown travel {travel!r}")
+def slide_z(p, slide: Slide | str | float) -> float:
+    """How far the Cart collar sits above the bottom of its slide: a `Slide` end or mm."""
+    if isinstance(slide, (int, float)) and 0 <= slide <= p.slide:
+        return float(slide)
+    if isinstance(slide, str):
+        return {Slide.BOTTOM: 0.0, Slide.TOP: p.slide}[Slide(slide)]
+    raise ValueError(f"unknown slide {slide!r}")

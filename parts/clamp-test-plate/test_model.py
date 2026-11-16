@@ -91,8 +91,8 @@ def nudged(params, field, factor):
 def test_survives_plus_minus_ten_percent(field, factor):
     # Perturbation audit: nudging any dimension must not break a body or a fit.
     params = nudged(model.Params(), field, factor)
-    for pose, travel in (("closed", "bottom"), ("open", "top")):
-        bodies = model.build(params, pose, travel)
+    for pose, slide in (("closed", "bottom"), ("open", "top")):
+        bodies = model.build(params, pose, slide)
         for name, body in bodies.items():
             assert check_part(body).ok, (name, pose)
             if name.startswith("door-") or name.startswith("cart-body-"):
@@ -154,21 +154,21 @@ def test_cart_lip_clears_the_glass_and_is_smaller_than_the_bore():
             assert lip in hole_diameters(part)
 
 
-@pytest.mark.parametrize("travel", ["bottom", "top"])
-def test_each_cart_collar_slides_on_its_stub_without_overlap_or_rattle(travel):
+@pytest.mark.parametrize("slide", ["bottom", "top"])
+def test_each_cart_collar_slides_on_its_stub_without_overlap_or_rattle(slide):
     params = model.Params()
-    bodies = model.build(params, travel=travel)
+    bodies = model.build(params, slide=slide)
     for body, door in cart_pairs(bodies):
         report = check_fit(bodies["plate"], body, params.gap)
-        assert report.ok, (travel, report.problems)
+        assert report.ok, (slide, report.problems)
         assert not (bodies["plate"] & door).solids()
 
 
-def test_cart_collar_travel_is_its_named_travel_and_stops_there():
+def test_cart_collar_slides_its_named_slide_and_stops_there():
     params = model.Params()
-    bottom = model.build(params, travel="bottom")
-    top = model.build(params, travel="top")
-    assert params.travel == pytest.approx(2.0)  # spec #10: about 2 mm
+    bottom = model.build(params, slide="bottom")
+    top = model.build(params, slide="top")
+    assert params.slide == pytest.approx(2.0)  # spec #10: about 2 mm
     for name in CART_NAMES:
         for part in ("body", "door"):
             key = f"cart-{part}-{name}"
@@ -191,13 +191,13 @@ def test_cart_rib_stops_the_collar_turning():
 
 
 @pytest.mark.parametrize("pose", ["closed", "open"])
-@pytest.mark.parametrize("travel", ["bottom", "top"])
-def test_each_cart_door_fits_its_body_without_overlap_or_rattle(pose, travel):
+@pytest.mark.parametrize("slide", ["bottom", "top"])
+def test_each_cart_door_fits_its_body_without_overlap_or_rattle(pose, slide):
     params = model.Params()
-    bodies = model.build(params, pose, travel)
+    bodies = model.build(params, pose, slide)
     for body, door in cart_pairs(bodies):
         report = check_fit(body, door, params.gap)
-        assert report.ok, (pose, travel, report.problems)
+        assert report.ok, (pose, slide, report.problems)
         assert not (bodies["plate"] & door).solids()
 
 

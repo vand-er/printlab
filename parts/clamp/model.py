@@ -16,68 +16,19 @@ from dataclasses import dataclass
 
 from build123d import Axis, Edge, Face, GeomType, Part, Vector, Wire, chamfer, extrude, revolve
 
-from printlab.clamp import battery_bore, cart_bore, locked_bodies, pose_bodies
+from printlab.clamp import ClampParams, battery_bore, cart_bore, locked_bodies, pose_bodies
+from printlab.collar import Pose
 
 SHARP_ANGLE = 115.0  # degrees; a convex edge whose faces meet under this is sharp
-JOINT_MARGIN = 0.1  # mm past the gap within which an edge faces another body (a joint)
 
 
 @dataclass(frozen=True)
-class Params:
-    # Sizes the test prints pick; Cart sizes are estimates until then.
-    battery_nominal_bore: float = 12.8  # mm, the Test plate's pick
-    cart_nominal_bore: float = 12.2  # mm, the Test plate's pick
+class Params(ClampParams):
+    # The shared Clamp sizes (`ClampParams`) start at the Test plate's middle bores.
     stroke: float = 0.6  # mm, the Lever strip's pick
-    fdm_offset: float = 0.2  # mm added to each bore; FDM holes print undersize
-    # Collars (as the Lever strip)
-    battery_collar_height: float = 12.0  # mm; its Latch runs full height to carry the Cart Latch
-    wall: float = 1.3  # mm, collar ring wall (load-bearing)
-    gap: float = 0.3  # mm, print-in-place clearance everywhere
-    open_angle: float = 90.0  # degrees each Door swings in the open pose
-    pin_diameter: float = 2.4  # mm, every pin: hinges and the Lever's three (load-bearing)
-    knuckle_wall: float = 1.2  # mm, ring around each pin (load-bearing)
-    knuckle_cone: float = 45.0  # degrees from vertical
-    knuckle_facets: int = 16
-    latch_height: float = 4.5  # mm, Cart collar Latch arm height
-    arm_thickness: float = 1.4  # mm, radial; the arm bends in the XY plane
-    arm_length: float = 8.0  # mm
-    arm_root: float = 2.0  # mm
-    catch_depth: float = 0.8  # mm
-    catch_ramp: float = 2.5  # mm
-    catch_flat: float = 1.0  # mm
-    hook_length: float = 1.5  # mm
-    hook_land: float = 0.5  # mm
-    tab_width: float = 1.5  # mm
-    tab_reach: float = 2.5  # mm
-    # Cart collar. Cart sizes are estimates; the brass height is a ruler reading.
-    brass_height: float = 10.0  # mm, Seat to ledge
-    brass_margin: float = 1.0  # mm the collar stops short of the brass height
-    glass_diameter: float = 11.9  # mm
-    lip_clearance: float = 0.1  # mm per side
-    lip_thickness: float = 0.8  # mm; the lip rests on the ledge with the Lever open
-    travel: float = 2.0  # mm the collar may slide on its rib; the Stroke uses part of it
-    rib_width: float = 2.0  # mm
-    rib_head_width: float = 5.0  # mm
-    rib_head_depth: float = 1.2  # mm
-    rib_reach: float = 1.0  # mm of neck between the spine and the carriage
-    carriage_wall: float = 1.2  # mm (load-bearing)
-    # Cradle
-    spine_depth: float = 2.0  # mm, the spine behind the collars (load-bearing)
-    # Lever (over-centre toggle)
-    toggle_x: float = 5.2  # mm, x of the Lever's outer face; the Link runs just outside
-    pivot_offset: float = 3.4  # mm from the Cradle's back face to the pivot axis
-    crank_radius: float = 3.0  # mm, pivot to crank pin
-    link_length: float = 13.0  # mm, crank pin to Link pin
-    overtravel: float = 8.0  # degrees the crank sits past centre when locked
-    centre_drop_cap: float = 0.1  # mm, most the collar may drop past the Stroke at centre
-    link_pin_height: float = 2.5  # mm, Link pin above the Cart collar's underside
-    lever_width: float = 3.0  # mm, along X
-    link_width: float = 2.0  # mm, along X
-    lug_width: float = 2.0  # mm, along X: the Cradle lug carrying the pivot pin
-    head_width: float = 1.2  # mm, along X: pin heads that keep the Link on
-    head_size: float = 2.4  # mm, half-diagonal of each diamond pin head
     # Pocket carry
     edge_break: float = 0.4  # mm, 45° chamfer on every sharp outside edge
+    joint_margin: float = 0.1  # mm past the gap within which an edge faces another body
 
 
 def _faces_by_edge(body: Part) -> dict[Edge, list[Face]]:
@@ -95,9 +46,9 @@ def _bore_radius(p: Params) -> float:
 def _into_faces(edge: Edge, faces: list[Face], at: float) -> tuple[Vector, Vector, Vector]:
     """(point, direction into face 1, direction into face 2) at `at` along a convex edge;
     each direction is perpendicular to the edge, along its face."""
-    q, t = edge.position_at(at), edge.tangent_at(at)
+    q, tangent = edge.position_at(at), edge.tangent_at(at)
     n1, n2 = faces[0].normal_at(q), faces[1].normal_at(q)
-    u1, u2 = t.cross(n1).normalized(), t.cross(n2).normalized()
+    u1, u2 = tangent.cross(n1).normalized(), tangent.cross(n2).normalized()
     u1 = -u1 if u1.dot(n2) > 0 else u1
     u2 = -u2 if u2.dot(n1) > 0 else u2
     return q, u1, u2
@@ -120,7 +71,7 @@ def sharp_outside_edges(p: Params, bodies: dict[str, Part], name: str) -> list[E
         between = 180 - math.degrees(math.acos(max(-1.0, min(1.0, n1.dot(n2)))))
         if between >= SHARP_ANGLE or solid.is_inside(q + (n1 - n2) * 0.01):
             continue
-        if any(edge.distance_to(o) <= p.gap + JOINT_MARGIN for o in others):
+        if any(edge.distance_to(o) <= p.gap + p.joint_margin for o in others):
             continue
         found.append(edge)
     return found
@@ -217,7 +168,7 @@ def _find(body: Part, midpoint: Vector, length: float) -> Edge:
     )
 
 
-def build(params: Params = Params(), pose: str = "closed") -> dict[str, Part]:
-    """The Clamp's named bodies in `pose`: "closed" (printed), "open" or "centre"."""
+def build(params: Params = Params(), pose: Pose | str = Pose.CLOSED) -> dict[str, Part]:
+    """The Clamp's named bodies in `pose` (see `Pose`)."""
     bodies = break_edges(params, locked_bodies(params, params.stroke))
     return pose_bodies(params, params.stroke, bodies, pose)
