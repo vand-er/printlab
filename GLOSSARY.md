@@ -36,10 +36,36 @@ _Avoid_: Spine, rail, guide
 A hinged ring on the cradle that clicks shut around the battery (the battery collar) or the cart (the cart collar). The battery collar closes first.
 _Avoid_: Clip, ring, clamshell
 
+**Door**:
+The hinged half of a collar, which swings open and is held shut by the latch.
+_Avoid_: Lid, flap
+
 **Latch**:
 The hook that snaps a collar shut and holds it closed until its tab is pressed.
 _Avoid_: Clasp, catch, lock
 
+**Keeper**:
+The ramped block on a collar's fixed half that the latch's hook rides over and snaps behind.
+_Avoid_: Catch, strike
+
 **Lever**:
 The part that, flipped past centre with a snap, pulls the cart collar down a fixed distance and so sets the preload. It is flipped last and released first.
 _Avoid_: Cam, buckle, toggle
+
+**Link**:
+The bar from the lever to the cart collar, which pulls the collar down as the lever goes over centre.
+_Avoid_: Rod, arm
+
+**Stroke**:
+How far the lever pulls the cart collar down, measured with the lever locked flat.
+_Avoid_: Travel, throw
+
+### Test prints
+
+**Test plate**:
+The first print: collar samples at three bores each, so the bores are chosen by feel before anything else is printed.
+_Avoid_: Test print, gauge
+
+**Lever strip**:
+The second print: three small clamps built at the chosen bores, one per stroke, so the stroke is chosen on the real cart and battery.
+_Avoid_: Stroke test
