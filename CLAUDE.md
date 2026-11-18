@@ -18,6 +18,7 @@ parts/<name>/out/           exported STEP, STL, PNG; committed
 src/printlab/checks.py        check_part(): one valid solid that fits the X1C; check_fit(); hole_diameters()
 src/printlab/export.py        export_part(): one Part or {name: Part} -> STEP, STL, GLB, coloured preview, grams
 src/printlab/collar.py        CollarParams, Pose; hinge, Latch, Battery and Cart collar builders
+src/printlab/strip.py         StripParams; sample strips: Cradle stubs in a row on a PETG strip, PLA labels
 src/printlab/clamp.py         ClampParams; Cradle, Lever, Link and linkage, shared by the Lever strip and Clamp
 src/printlab/nudge.py         the ±10 % Params nudge: nudged(), and audit() across worker processes
 src/printlab/parts.py         part_names(), load_part(): find and import parts/<name>/model.py

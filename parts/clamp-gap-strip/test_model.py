@@ -2,7 +2,6 @@ import math
 from dataclasses import fields
 
 import pytest
-
 from build123d import Pos
 
 from printlab import nudge

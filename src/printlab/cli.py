@@ -46,6 +46,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"   {prefix}holes: {', '.join(f'{d:g}' for d in holes)} mm")
     for path in (result.step, result.stl, *result.separate_stls.values(), result.glb, result.preview):
         print(f"   {path.relative_to(PARTS_DIR.parent)}")
+    # A part may define notes(bodies) -> lines worth reporting, such as how its filaments swap.
+    for line in getattr(module, "notes", lambda bodies: [])(bodies):
+        print(f"   {line}")
     # A part may set GRAM_BUDGET in its model.py; going over it warns but still exports.
     budget = getattr(module, "GRAM_BUDGET", None)
     if budget is not None and result.grams > budget:
