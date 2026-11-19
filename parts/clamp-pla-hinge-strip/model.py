@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 
 from build123d import Part, Pos
 
+from printlab.checks import RATTLE_DELTA
 from printlab.collar import PlaPin, Pose, bore, door, pla_hinge, pose_door
 from printlab.strip import StripParams, label, sample_x, strip
 
@@ -24,7 +25,7 @@ SEPARATE_STL = {"pla": "pla-"}  # hinges and labels print in white PLA, from the
 class Params(StripParams):
     pla_clearances: tuple[float, ...] = (0.02, 0.1, 0.2)  # mm, one sample each; 0.02 still splits
     petg_gap: float = 0.8  # mm, Door to stub in PETG; 0.6 fused in clear PETG
-    pin_cap: float = 0.6  # mm of PETG under and over each pin
+    pin_cap: float = 0.6  # mm of PETG under and over each pin; only closes it in, carries no load
     collar_height: float = 6.0  # mm; three knuckles and two washers above the 4.5 mm Latch
     keeper_depth: float = 1.3  # mm; petg_gap plus the gap strip's 0.5 mm hook engagement
     layer_height: float = 0.1  # mm, the user's everclear preset
@@ -37,11 +38,6 @@ def key(c: float) -> str:
 def sample(p: Params, c: float) -> Params:
     """The Params of one sample: PETG gaps at `petg_gap`, its PLA at clearance c."""
     return replace(p, gap=p.petg_gap, pla_pin=PlaPin(clearance=c, cap=p.pin_cap))
-
-
-def door_clearances(p: Params) -> dict[str, float]:
-    """{Door body name: its sample's PLA clearance}."""
-    return {f"door-{key(c)}": c for c in p.pla_clearances}
 
 
 def fit_pairs(p: Params) -> list[tuple[str, str, float]]:
@@ -64,7 +60,18 @@ def notes(bodies: dict[str, Part], params: Params = Params()) -> list[str]:
              if n.startswith(SEPARATE_STL["pla"])]
     total = round(max(b.bounding_box().max.Z for b in bodies.values()) / lh)
     pla = sum(any(lo < (i + 0.5) * lh < hi for lo, hi in spans) for i in range(total))
-    return [f"PLA in {pla} of {total} layers: {2 * pla} filament swaps"]
+    # The Latch: each Door pulled open (+Y at the Latch) past the PETG gap; how deep its hook
+    # stands behind the keeper.
+    pull = Pos(0, params.petg_gap + RATTLE_DELTA, 0)
+    hold = min(
+        max((s.bounding_box().size.X for s in (pull * b & bodies["strip"]).solids()), default=0.0)
+        for n, b in bodies.items() if n.startswith("door-")
+    )
+    return [
+        f"PLA in {pla} of {total} layers: {2 * pla} filament swaps",
+        f"Latch hook holds {hold:.2f} mm behind the keeper past the {params.petg_gap:g} mm PETG gap"
+        f" (keeper_depth {params.keeper_depth:g} mm)",
+    ]
 
 
 def build(params: Params = Params(), pose: Pose | str = Pose.CLOSED) -> dict[str, Part]:
@@ -76,8 +83,8 @@ def build(params: Params = Params(), pose: Pose | str = Pose.CLOSED) -> dict[str
     bore_d = bore(params, params.nominal_bore)
     h = params.collar_height
     for i, (c, s) in enumerate(zip(cs, samples)):
-        x = Pos(sample_x(params, i, len(cs)), 0, 0)
-        bodies[f"door-{key(c)}"] = x * pose_door(s, door(s, bore_d, h), bore_d, pose)
-        bodies[f"pla-hinge-{key(c)}"] = x * pla_hinge(s, bore_d, h)
-        bodies[f"pla-label-{key(c)}"] = label(params, _text(c), x.position.X)
+        x = sample_x(params, i, len(cs))
+        bodies[f"door-{key(c)}"] = Pos(x, 0, 0) * pose_door(s, door(s, bore_d, h), bore_d, pose)
+        bodies[f"pla-hinge-{key(c)}"] = Pos(x, 0, 0) * pla_hinge(s, bore_d, h)
+        bodies[f"pla-label-{key(c)}"] = label(params, _text(c), x)
     return bodies

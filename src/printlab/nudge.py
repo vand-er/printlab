@@ -37,7 +37,8 @@ def numeric_fields(params_type) -> list[str]:
 
 
 def problems(
-    part: str, field: str, factor: float, pairs: tuple[tuple[str, str], ...] | str,
+    part: str, field: str, factor: float,
+    pairs: tuple[tuple[str, str] | tuple[str, str, float], ...] | str,
     poses: tuple[str, ...],
 ) -> list[str]:
     """What breaks with one field nudged: `check_part` on each body in the first pose
@@ -64,7 +65,8 @@ def problems(
 
 
 def audit(
-    part: str, pairs: tuple[tuple[str, str], ...] | str, poses: tuple[str | tuple, ...],
+    part: str, pairs: tuple[tuple[str, str] | tuple[str, str, float], ...] | str,
+    poses: tuple[str | tuple, ...],
     only: Collection[str] | None = None,
 ) -> dict[tuple[str, float], list[str]]:
     """{(field, factor): problems} for every numeric field of the part's Params, or those `only`."""
