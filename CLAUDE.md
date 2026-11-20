@@ -18,7 +18,9 @@ parts/<name>/out/           exported STEP, STL, PNG; committed
 src/printlab/checks.py        check_part(): one valid solid that fits the X1C; check_fit(); hole_diameters()
 src/printlab/export.py        export_part(): one Part or {name: Part} -> STEP, STL, GLB, coloured preview, grams
 src/printlab/collar.py        CollarParams, Pose; hinge, Latch, Battery and Cart collar builders
+src/printlab/strip.py         LabelParams, StripParams; sample strips: Cradle stubs in a row on a PETG strip, PLA labels
 src/printlab/clamp.py         ClampParams; Cradle, Lever, Link and linkage, shared by the Lever strip and Clamp
+src/printlab/pinhole.py       teardrop(), lead_in(): roofed Pin holes and their lead-ins
 src/printlab/nudge.py         the ±10 % Params nudge: nudged(), and audit() across worker processes
 src/printlab/parts.py         part_names(), load_part(): find and import parts/<name>/model.py
 src/printlab/cli.py           the `printlab` command: build, list
@@ -42,6 +44,7 @@ Add a helper to `src/printlab/` only once a second part needs it.
 - Minimum wall 1.2 mm for load-bearing parts.
 - Use the least filament that keeps full strength: remove material only where no load runs, and orient parts to print without supports.
 - Orient snap-fit beams so they bend within the layer plane, never across layer lines.
+- Joints that turn are assembled on Pins, never printed in place: clear PETG fuses them (ADR 0003).
 - FDM holes print undersize. Use the measured offsets from the `hole-gauge` part once it has been printed; until then, add a 0.2 mm clearance.
 - Check every number taken from elsewhere against `docs/research/prior-art/`. The table in `3dp-mcp-server.md` lists values known to be wrong.
 

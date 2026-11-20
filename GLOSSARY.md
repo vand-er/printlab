@@ -48,6 +48,10 @@ _Avoid_: Clasp, catch, lock
 The ramped block on a collar's fixed half that the latch's hook rides over and snaps behind.
 _Avoid_: Catch, strike
 
+**Pin**:
+The separate rod pushed through a joint's knuckles after printing, which the joint turns on.
+_Avoid_: Axle, rod
+
 **Lever**:
 The part that, flipped past centre with a snap, pulls the cart collar down a fixed distance and so sets the preload. It is flipped last and released first.
 _Avoid_: Cam, buckle, toggle

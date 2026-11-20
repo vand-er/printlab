@@ -5,10 +5,11 @@ and a slow build takes minutes per field otherwise.
 """
 
 import os
+from collections.abc import Collection
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import fields, replace
 
-from printlab.checks import check_fit, check_part
+from printlab.checks import FitPair, check_fit, check_part
 from printlab.parts import load_part
 
 FACTORS = (0.9, 1.1)
@@ -35,16 +36,40 @@ def numeric_fields(params_type) -> list[str]:
     return [f.name for f in fields(params_type) if numeric(f.default)]
 
 
+def fit_problems(
+    bodies: dict, pairs: tuple[FitPair, ...], gap: float, pose: str,
+) -> list[str]:
+    """`check_fit` on each pair whose bodies are both in this pose; a `print` pose has no Pins.
+
+    A pair may name its clearance, else it is the gap; None checks only that they don't overlap.
+    """
+    found = []
+    for a, b, *clearance in pairs:
+        if a in bodies and b in bodies:
+            c = clearance[0] if clearance else gap
+            if c is None:
+                overlap = sum(s.volume for s in (bodies[a] & bodies[b]).solids())
+                problems = [f"parts overlap by {overlap:.3f} mm³"] if overlap > 0 else []
+            else:
+                problems = check_fit(bodies[a], bodies[b], c).problems
+            found += [f"{pose} {a}/{b}: {q}" for q in problems]
+    return found
+
+
 def problems(
-    part: str, field: str, factor: float, pairs: tuple[tuple[str, str], ...] | str,
+    part: str, field: str, factor: float,
+    pairs: tuple[FitPair, ...] | str,
     poses: tuple[str, ...],
 ) -> list[str]:
     """What breaks with one field nudged: `check_part` on each body in the first pose
-    (as printed), and `check_fit` on each moving pair in every pose."""
+    (as printed), and `fit_problems` in every pose. `pairs` may name the part's
+    `fit_pairs(params, pose)`, for a nudge that renames bodies."""
     module = load_part(part)
     params = nudged(module.Params(), field, factor)
-    if isinstance(pairs, str):  # a function in the part's model, when a nudge renames bodies
-        pairs = getattr(module, pairs)(params)
+
+    def pairs_in(pose: str) -> tuple[FitPair, ...]:
+        return getattr(module, pairs)(params, pose) if isinstance(pairs, str) else pairs
+
     found = []
     try:
         for i, pose in enumerate(poses):
@@ -54,19 +79,20 @@ def problems(
             bodies = module.build(params, *args)
             if i == 0:
                 found += [f"{n}: {q}" for n, b in bodies.items() for q in check_part(b).problems]
-            for a, b in pairs:
-                report = check_fit(bodies[a], bodies[b], params.gap)
-                found += [f"{pose} {a}/{b}: {q}" for q in report.problems]
+            found += fit_problems(bodies, pairs_in(args[0] if args else pose), params.gap, pose)
     except Exception as error:  # a nudge that cannot build at all is a failure too
         found.append(f"build: {error!r}")
     return found
 
 
 def audit(
-    part: str, pairs: tuple[tuple[str, str], ...] | str, poses: tuple[str | tuple, ...]
+    part: str, pairs: tuple[FitPair, ...] | str,
+    poses: tuple[str | tuple, ...],
+    only: Collection[str] | None = None,
 ) -> dict[tuple[str, float], list[str]]:
-    """{(field, factor): problems} for every numeric field of the part's Params."""
-    jobs = [(f, k) for f in numeric_fields(load_part(part).Params) for k in FACTORS]
+    """{(field, factor): problems} for every numeric field of the part's Params, or those `only`."""
+    names = [f for f in numeric_fields(load_part(part).Params) if only is None or f in only]
+    jobs = [(f, k) for f in names for k in FACTORS]
     # Under pytest-xdist every worker is already a process; one pool per CPU each would
     # start CPUs² processes. Run the slow audits with -n 0 to give the pool every CPU.
     workers = 1 if os.environ.get("PYTEST_XDIST_WORKER") else os.cpu_count()

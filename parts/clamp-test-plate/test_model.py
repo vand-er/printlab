@@ -1,5 +1,8 @@
+import itertools
+import math
+
 import pytest
-from build123d import Align, Axis, Box, Pos
+from build123d import Align, Axis, Box, Pos, Vector
 
 from printlab import nudge
 from printlab.checks import check_fit, check_part, hole_diameters
@@ -16,6 +19,139 @@ def test_each_sample_bore_is_its_nominal_plus_the_fdm_offset():
     for door, bore in expected.items():
         assert bore in hole_diameters(bodies[door])
     assert {12.8, 13.0, 13.2} <= set(hole_diameters(bodies["plate"]))
+
+
+# --- Collar hinges on Pins (#21) ---
+
+DOORS = ("door-12-6", "door-12-8", "door-13-0")
+
+
+def test_each_stub_holds_a_press_fit_pin_hole_and_each_door_a_clearance_hole():
+    params = model.Params()
+    bodies = model.build(params)
+    assert params.pin_press_hole_vertical in hole_diameters(bodies["plate"])
+    for name in DOORS:
+        assert params.pin_clearance_hole in hole_diameters(bodies[name])
+    for name in CART_NAMES:
+        assert params.pin_press_hole_vertical in hole_diameters(bodies[f"cart-body-{name}"])
+        assert params.pin_clearance_hole in hole_diameters(bodies[f"cart-door-{name}"])
+
+
+APART = 1.0  # mm; two 0.5 mm lines, so nothing on the bed can fuse to its neighbour
+
+
+def test_prints_each_door_apart_from_its_stub_without_pins():
+    bodies = model.build()
+    assert set(bodies) == set(model.build(pose="print"))
+    assert not [name for name in bodies if name.startswith("pin-")]
+    for a, b in itertools.combinations(bodies, 2):
+        if a == "plate" and b.startswith("cart-body-"):
+            continue  # each Cart collar body slides on its rib, a gap off
+        assert bodies[a].distance_to(bodies[b]) > APART, (a, b)
+
+
+PIN_CLEARANCE = 0.2  # mm a side: a 1.75 mm Pin in the 2.15 mm clearance hole
+
+
+def hinges(bodies):
+    """(fixed half, Door, Pin) of every collar sample, assembled."""
+    return [(bodies["plate"], bodies[d], bodies[d.replace("door-", "pin-")]) for d in DOORS] + [
+        (bodies[f"cart-body-{n}"], bodies[f"cart-door-{n}"], bodies[f"pin-cart-{n}"])
+        for n in CART_NAMES
+    ]
+
+
+@pytest.mark.parametrize("pose", ["closed", "open"])
+def test_each_door_turns_on_a_pin_held_in_its_stub(pose):
+    bodies = model.build(pose=pose)
+    found = hinges(bodies)
+    assert len(found) == 6
+    for stub, door, pin in found:
+        report = check_fit(pin, door, PIN_CLEARANCE)
+        assert report.ok, (pose, report.problems)
+        assert not (pin & stub).solids()
+        assert not (door & stub).solids()
+        # Cut flush: the Pin runs the hinge's whole height and no further.
+        assert pin.bounding_box().size.Z == pytest.approx(door.bounding_box().size.Z, abs=1e-6)
+
+
+def test_each_door_opens_about_its_pin():
+    params = model.Params()
+    closed, opened = model.build(params, "closed"), model.build(params, "open")
+    for (_, shut, pin), (_, swung, pin_open) in zip(hinges(closed), hinges(opened)):
+        centre = pin.bounding_box().center()
+        assert (pin_open.bounding_box().center() - centre).length < 1e-6  # the Pin stays put
+        turned = shut.rotate(Axis(centre, (0, 0, 1)), params.open_angle)
+        assert (turned - swung).volume < 1e-3 and (swung - turned).volume < 1e-3
+
+
+PROBE = 0.002  # mm, side of the thin column that reads the knuckles' ends
+PROBE_RADIUS = 1.8  # mm off the Pin's axis: in the knuckle wall, past the lead-ins
+
+
+@pytest.mark.parametrize("pose", ["closed", "open"])
+def test_knuckles_stack_the_shared_spacing_apart_along_each_pin(pose):
+    params = model.Params()
+    assert params.knuckle_spacing == 0.2  # spec #18
+    for stub, door, pin in hinges(model.build(params, pose)):
+        c = pin.bounding_box().center()
+        probe = Pos(c.X - PROBE_RADIUS, c.Y, c.Z) * Box(PROBE, PROBE, 2 * pin.bounding_box().size.Z)
+        spans = sorted(
+            (s.bounding_box().min.Z, s.bounding_box().max.Z)
+            for part in (stub, door)
+            for s in (part & probe).solids()
+        )
+        assert len(spans) == 3, spans  # stub, Door, stub
+        for (_, top), (bottom, _) in zip(spans, spans[1:]):
+            assert bottom - top == pytest.approx(0.2, abs=2 * PROBE)
+
+
+def test_each_latch_hook_holds_half_a_millimetre_behind_its_keeper():
+    params = model.Params()
+    bodies = model.build(params, "closed")
+    half = params.pitch / 2  # reaches across this sample only
+    corner = (Align.MIN, Align.MAX, Align.MIN)
+    for i, name in enumerate(DOORS):
+        x = model.sample_x(params, i)
+        # Below the split, on the Latch side: the Door's hook, and the stub's keeper.
+        hook = bodies[name] & Pos(x, 0, 0) * Box(half, half, half, align=corner)
+        depth = params.keeper_ramp + params.keeper_flat
+        keeper = bodies["plate"] & Pos(x, -params.gap, 0) * Box(half, depth, half, align=corner)
+        hold = keeper.bounding_box().max.X - hook.bounding_box().min.X
+        assert hold == pytest.approx(0.5, abs=1e-6), name
+
+
+OVERHANG = 45.0  # degrees from vertical a face may lean before it needs support
+SAMPLES = 5  # points per face edge-to-edge where the overhang is read
+
+
+LEDGE = 0.5  # mm; a ledge no wider than one 0.5 mm line prints without support
+
+
+def is_ledge(body, point):
+    """Whether the body's own wall stands under the point within one line width."""
+    solid = body.solids()[0]
+    return any(
+        solid.is_inside(point + Vector(r * math.cos(a), r * math.sin(a), -0.1))
+        for r in (LEDGE / 2, LEDGE)
+        for a in (i * math.pi / 4 for i in range(8))
+    )
+
+
+def test_prints_without_supports():
+    limit = -math.sin(math.radians(OVERHANG)) - 1e-3
+    for name, body in model.build().items():
+        for face in body.faces():
+            if face.bounding_box().min.Z < 1e-3:
+                continue  # on the bed
+            # Read the normal across the face, not only at its centre: a round hole turns.
+            for u, v in itertools.product(range(SAMPLES), repeat=2):
+                at = (u / (SAMPLES - 1), v / (SAMPLES - 1))
+                point = face.position_at(*at)
+                if face.distance_to(point) > 1e-6:
+                    continue  # off a trimmed face, such as inside a half ring
+                if face.normal_at(*at).Z < limit:
+                    assert is_ledge(body, point), (name, point, face.normal_at(*at))
 
 
 def test_prints_closed_standing_on_the_bed():
@@ -70,15 +206,28 @@ def test_no_load_bearing_wall_is_under_the_minimum():
         assert ring.size.Y >= MIN_WALL
     for arm in model.latch_arms(params):
         assert min(arm.bounding_box().size.X, arm.bounding_box().size.Y) >= MIN_WALL
-    assert params.knuckle_wall >= MIN_WALL
-    assert params.pin_diameter >= 2 * MIN_WALL
+    # Round each Pin hole, the press fit's and the clearance's (spec #18).
+    for hole in (params.pin_press_hole_vertical, params.pin_clearance_hole):
+        assert model.knuckle_radius(params) - hole / 2 >= MIN_WALL
+
+
+POSES = (("print", "bottom"), ("closed", "bottom"), ("open", "top"))  # as printed first
+
+
+def test_passes_the_audits_checks_unnudged():
+    pairs = model.fit_pairs(model.Params(), "closed")
+    # Each Pin turns in its Door at the Pin clearance, in both assembled poses.
+    for name in [*DOORS, *(f"cart-door-{n}" for n in CART_NAMES)]:
+        pin = name.replace("cart-door-", "pin-cart-").replace("door-", "pin-")
+        assert (pin, name, pytest.approx(PIN_CLEARANCE)) in pairs
+    assert nudge.problems("clamp-test-plate", "gap", 1.0, "fit_pairs", POSES) == []
 
 
 @pytest.fixture(scope="module")
 def nudges():
     """Every numeric field nudged ±10 %, run once across worker processes. Pairs come from
     the model's fit_pairs, since nudging a bore renames its bodies."""
-    return nudge.audit("clamp-test-plate", "fit_pairs", (("closed", "bottom"), ("open", "top")))
+    return nudge.audit("clamp-test-plate", "fit_pairs", POSES)
 
 
 @pytest.mark.slow
@@ -87,17 +236,6 @@ def nudges():
 def test_survives_plus_minus_ten_percent(field, factor, nudges):
     # Perturbation audit: nudging any dimension must not break a body or a fit.
     assert nudges[(field, factor)] == []
-
-
-@pytest.mark.parametrize("pose", ["closed", "open"])
-def test_each_door_fits_the_plate_without_overlap_or_rattle(pose):
-    params = model.Params()
-    bodies = model.build(params, pose)
-    doors = [name for name in bodies if name.startswith("door-")]
-    assert len(doors) == 3
-    for name in doors:
-        report = check_fit(bodies["plate"], bodies[name], params.gap)
-        assert report.ok, (name, pose, report.problems)
 
 
 # --- Cart collar samples (#12) ---
@@ -177,13 +315,15 @@ def test_cart_rib_stops_the_collar_turning():
 
 @pytest.mark.parametrize("pose", ["closed", "open"])
 @pytest.mark.parametrize("slide", ["bottom", "top"])
-def test_each_cart_door_fits_its_body_without_overlap_or_rattle(pose, slide):
-    params = model.Params()
-    bodies = model.build(params, pose, slide)
-    for body, door in cart_pairs(bodies):
-        report = check_fit(body, door, params.gap)
+def test_each_cart_door_turns_on_its_pin_anywhere_on_the_slide(pose, slide):
+    bodies = model.build(pose=pose, slide=slide)
+    for name, (body, door) in zip(CART_NAMES, cart_pairs(bodies)):
+        pin = bodies[f"pin-cart-{name}"]
+        report = check_fit(pin, door, PIN_CLEARANCE)
         assert report.ok, (pose, slide, report.problems)
-        assert not (bodies["plate"] & door).solids()
+        for part in (body, door, pin):
+            assert not (bodies["plate"] & part).solids()
+        assert not (body & door).solids() and not (body & pin).solids()
 
 
 def test_each_cart_latch_arm_bends_in_the_layer_plane():

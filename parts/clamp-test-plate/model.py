@@ -1,8 +1,10 @@
 """Clamp test plate: Battery and Cart collar samples at three bores each.
 
-Each Battery sample is a short Cradle stub with a print-in-place hinged collar Door, shut by
-a hook-snap Latch with a thumb tab, and labelled with its nominal bore. It prints
-closed, Battery axis vertical (Z). Pick the bore that grips the Battery.
+Each Battery sample is a short Cradle stub with a collar Door hinged on a Pin (ADR 0003),
+shut by a hook-snap Latch with a thumb tab, and labelled with its nominal bore. The Pin
+presses into the stub's two knuckles and turns in the Door's. Battery axis vertical (Z);
+the `print` pose lays each Door beside its stub, without Pins. Pick the bore that grips
+the Battery.
 
 Each Cart sample is a Cart collar: a sliding body (the stub's half ring, hinge and keeper,
 plus a carriage) and a Door, gripping the brass base by friction. The carriage slides
@@ -23,8 +25,10 @@ from dataclasses import dataclass
 
 from build123d import Part, Pos, Rot, Text, extrude
 
+from printlab.checks import FitPair
 from printlab.collar import (
     CollarParams,
+    Hinge,
     Pose,
     Slide,
     bore,
@@ -37,9 +41,12 @@ from printlab.collar import (
     cart_rib,
     cradle_stub,
     door,
+    door_print_offset,
     hinge_axis_x,
+    knuckle_radius,  # noqa: F401  for the tests
     latch_arm,
     outer_radius,
+    pin,
     pose_door,
     slide_z,
 )
@@ -49,10 +56,12 @@ GRAM_BUDGET = 8.0  # g; the CLI warns above this
 
 @dataclass(frozen=True)
 class Params(CollarParams):
+    hinge: Hinge = Hinge.PIN  # ADR 0003: every print-in-place knuckle fused in PETG
     # Samples
     nominal_bores: tuple[float, ...] = (12.6, 12.8, 13.0)  # mm, labelled sizes
     cart_nominal_bores: tuple[float, ...] = (12.0, 12.2, 12.4)  # mm, labelled sizes
     pitch: float = 32.0  # mm between sample centres; room for an open Door
+    print_gap: float = 3.0  # mm clear between each Door and its stub's knuckles on the bed
     collar_height: float = 9.0  # mm, Battery sample; below the 12 mm collar to save filament
     # Plate
     plate_width: float = 3.5  # mm, strip joining the stubs and ribs
@@ -65,16 +74,24 @@ def label_name(nominal: float) -> str:
     return f"{nominal:.1f}".replace(".", "-")
 
 
-def fit_pairs(p: Params) -> tuple[tuple[str, str], ...]:
-    """The bodies that move against each other: each Door and Cart collar body on the
-    plate, each Cart Door on its body. Names follow the bores, so a nudge renames them."""
-    doors = [f"door-{label_name(n)}" for n in p.nominal_bores]
+def fit_pairs(p: Params, pose: Pose | str) -> tuple[FitPair, ...]:
+    """The bodies that move against each other, the same in every `pose` (a `print` pose has
+    no Pins, so their pairs are skipped there), for the nudge audit. Each Pin turns in its
+    Door at the Pin clearance; it is a press fit in its stub, and the Pin, not a gap, locates
+    the Door on the stub, so those only mustn't overlap (None). Each Cart collar body slides
+    on the plate at the gap. Names follow the bores, so a nudge renames them."""
+    clearance = (p.pin_clearance_hole - p.pin_stock_diameter) / 2
+    battery = [label_name(n) for n in p.nominal_bores]
     carts = [label_name(n) for n in p.cart_nominal_bores]
-    return tuple(
-        [("plate", d) for d in doors]
-        + [("plate", f"cart-body-{c}") for c in carts]
-        + [(f"cart-body-{c}", f"cart-door-{c}") for c in carts]
-    )
+    hinges = [("plate", f"door-{b}", f"pin-{b}") for b in battery] + [
+        (f"cart-body-{c}", f"cart-door-{c}", f"pin-cart-{c}") for c in carts
+    ]
+    pairs = []
+    for stub, door_name, pin_name in hinges:
+        pairs += [(pin_name, door_name, clearance), (stub, pin_name, None), (stub, door_name, None)]
+    pairs += [("plate", f"cart-body-{c}") for c in carts]
+    pairs += [("plate", f"cart-door-{c}", None) for c in carts]
+    return tuple(pairs)
 
 
 def sample_x(p: Params, i: int) -> float:
@@ -109,9 +126,11 @@ def _plate(p: Params) -> Part:
     bores = [bore(p, n) for n in p.nominal_bores]
     back, front = _plate_y(p)
     x0 = sample_x(p, 0) + hinge_axis_x(p, bores[0])
+    last_label = _label(p, p.cart_nominal_bores[-1], cart_centre(p, len(p.cart_nominal_bores) - 1)[0])
     x1 = max(
         sample_x(p, len(bores) - 1) + outer_radius(p, bores[-1]),
         cart_centre(p, len(p.cart_nominal_bores) - 1)[0] + p.rib_head_width / 2,
+        last_label.bounding_box().max.X,  # the label stands on the plate, not over its end
     )
     plate = box(x0, x1, back, front, p.plate_height)
     for i, (nominal, bore_d) in enumerate(zip(p.nominal_bores, bores)):
@@ -126,19 +145,34 @@ def _plate(p: Params) -> Part:
     return plate
 
 
+def _print_offset(p: Params, closed: Part) -> Pos:
+    """Where the `print` pose lays a Door: `print_gap` clear of its stub's knuckles."""
+    return door_print_offset(p, closed, p.print_gap)
+
+
+def _posed(p: Params, closed: Part, bore_d: float, pose: Pose | str) -> Part:
+    """A Door in the sample frame: laid beside its stub to print, else closed or open on its Pin."""
+    if Pose(pose) == Pose.PRINT:
+        return _print_offset(p, closed) * closed
+    return pose_door(p, closed, bore_d, pose)
+
+
 def build(
     params: Params = Params(),
-    pose: Pose | str = Pose.CLOSED,
+    pose: Pose | str = Pose.PRINT,
     slide: Slide | str | float = Slide.BOTTOM,
 ) -> dict[str, Part]:
-    """Named bodies. `pose` opens or closes every Door; `slide` places every Cart collar."""
+    """Named bodies. `pose` lays every Door out to print, or closes or opens it on its Pin
+    (a `pin-…` body); `slide` places every Cart collar."""
+    assembled = Pose(pose) != Pose.PRINT
     bodies = {"plate": _plate(params)}
     for i, nominal in enumerate(params.nominal_bores):
         bore_d = bore(params, nominal)
         closed = door(params, bore_d, params.collar_height)
-        bodies[f"door-{label_name(nominal)}"] = Pos(sample_x(params, i), 0, 0) * pose_door(
-            params, closed, bore_d, pose
-        )
+        place = Pos(sample_x(params, i), 0, 0)
+        bodies[f"door-{label_name(nominal)}"] = place * _posed(params, closed, bore_d, pose)
+        if assembled:
+            bodies[f"pin-{label_name(nominal)}"] = place * pin(params, bore_d, params.collar_height)
     height = cart_collar_height(params)
     lift = Pos(0, 0, slide_z(params, slide))
     for i, nominal in enumerate(params.cart_nominal_bores):
@@ -147,21 +181,28 @@ def build(
         name = label_name(nominal)
         bodies[f"cart-body-{name}"] = place * cart_body(params, bore_d, height)
         closed = cart_door(params, bore_d, height)
-        bodies[f"cart-door-{name}"] = place * pose_door(params, closed, bore_d, pose)
+        bodies[f"cart-door-{name}"] = place * _posed(params, closed, bore_d, pose)
+        if assembled:
+            bodies[f"pin-cart-{name}"] = place * pin(params, bore_d, height)
     return bodies
 
 
 def cart_latch_arms(params: Params = Params()) -> list[Part]:
-    """Each Cart sample's Latch arm, placed as printed (closed pose, bottom of the slide)."""
-    return [
-        _cart_place(params, i) * latch_arm(params, bore(params, n))
-        for i, n in enumerate(params.cart_nominal_bores)
-    ]
+    """Each Cart sample's Latch arm, placed as printed (bottom of the slide)."""
+    height = cart_collar_height(params)
+    arms = []
+    for i, n in enumerate(params.cart_nominal_bores):
+        bore_d = bore(params, n)
+        offset = _print_offset(params, cart_door(params, bore_d, height))
+        arms.append(_cart_place(params, i) * offset * latch_arm(params, bore_d))
+    return arms
 
 
 def latch_arms(params: Params = Params()) -> list[Part]:
-    """Each sample's Latch arm, placed as printed (closed pose)."""
-    return [
-        Pos(sample_x(params, i), 0, 0) * latch_arm(params, bore(params, n))
-        for i, n in enumerate(params.nominal_bores)
-    ]
+    """Each sample's Latch arm, placed as printed."""
+    arms = []
+    for i, n in enumerate(params.nominal_bores):
+        bore_d = bore(params, n)
+        offset = _print_offset(params, door(params, bore_d, params.collar_height))
+        arms.append(Pos(sample_x(params, i), 0, 0) * offset * latch_arm(params, bore_d))
+    return arms

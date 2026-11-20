@@ -14,17 +14,24 @@ from enum import StrEnum
 
 from build123d import Align, Axis, Box, Cylinder, Part, Plane, Polygon, Pos, RegularPolygon, extrude
 
+from printlab.pinhole import FUSE, lead_in
+
 # Pure modelling tolerances, not part sizes.
-FUSE = 0.01  # mm two solids overlap so they fuse into one
 EMBED = 0.5  # mm a joining feature runs into the body it joins
 SPIKE_TIP = 0.05  # mm, flat top of a knuckle spike, inside the pin, so it never ends in a point
 LIP_MIN_STEP = 0.02  # mm, on the diameter: a lip any narrower than this is left out
 
 
 class Pose(StrEnum):
-    CLOSED = "closed"  # as printed: Doors shut (and a Clamp's Lever locked)
+    PRINT = "print"  # a part with Pins: bodies apart on the bed, no Pins
+    CLOSED = "closed"  # Doors shut (and a Clamp's Lever locked); as printed without Pins
     OPEN = "open"  # Doors swung open (and a Clamp's Lever open)
     CENTRE = "centre"  # Doors shut, a Clamp's Lever at dead centre
+
+
+class Hinge(StrEnum):
+    PRINTED = "printed"  # print-in-place: the stub's knuckles carry an integral pin
+    PIN = "pin"  # assembled: a Pin presses into the stub's knuckles, turns in the Door's
 
 
 class Slide(StrEnum):
@@ -40,11 +47,22 @@ class CollarParams:
     wall: float = 1.3  # mm, collar ring wall (load-bearing)
     gap: float = 0.3  # mm, print-in-place clearance everywhere
     open_angle: float = 90.0  # degrees each Door swings in the open pose
-    # Hinge: three knuckles, stub-Door-stub, with an integral pin on the stub
-    pin_diameter: float = 2.4  # mm, every pin (load-bearing)
+    # Hinge: three knuckles, stub-Door-stub, on a printed pin or, opted in, on a Pin
+    hinge: Hinge = Hinge.PRINTED
+    pin_diameter: float = 2.4  # mm, the printed pin (load-bearing)
     knuckle_wall: float = 1.2  # mm, ring around each pin (load-bearing)
     knuckle_cone: float = 45.0  # degrees from vertical; spiked knuckle ends print unsupported
     knuckle_facets: int = 16  # facets around each knuckle spike
+    # Pin: a PETG filament offcut pushed through a joint (ADR 0003). The holes are the Pin
+    # strip's provisional middle sizes until it is printed and judged.
+    pin_stock_diameter: float = 1.75  # mm, the filament the Pin is cut from
+    pin_press_hole_vertical: float = 1.85  # mm, press fit in a hole printed vertical
+    pin_press_hole_horizontal: float = 1.85  # mm, press fit in a hole printed along the bed
+    pin_clearance_hole: float = 2.15  # mm, the Pin turns freely
+    pin_lead_in: float = 0.3  # mm each Pin hole's mouth is widened, a side
+    pin_lead_in_angle: float = 45.0  # degrees from the hole's axis: each lead-in's chamfer
+    pin_roof_angle: float = 45.0  # degrees from vertical: the pointed roof of a hole along the bed
+    knuckle_spacing: float = 0.2  # mm between stacked knuckles along a Pin
     # Latch: horizontal hook arm on the Door, keeper on the stub
     latch_height: float = 4.5  # mm, arm height from the bed
     arm_thickness: float = 1.4  # mm, radial; the arm bends in the XY plane
@@ -81,6 +99,8 @@ def outer_radius(p, bore_d: float) -> float:
 
 
 def knuckle_radius(p) -> float:
+    if p.hinge == Hinge.PIN:
+        return max(p.pin_press_hole_vertical, p.pin_clearance_hole) / 2 + p.knuckle_wall
     return p.pin_diameter / 2 + p.gap + p.knuckle_wall
 
 
@@ -108,16 +128,37 @@ def _below_spike(p, apex: float) -> Part:
     return Pos(0, 0, bottom) * extrude(base, rise, taper=p.knuckle_cone)
 
 
+def _mouth(p, r: float, z_mouth: float, drop: float = 0.0, up: bool = True) -> Part:
+    """The lead-in of a hole of radius r on the hinge axis, at its mouth on a knuckle's end at
+    z_mouth: a top face if `up`, else an underside. The end is flat, or falls `drop` mm per
+    mm outward (a spike top)."""
+    plane = Plane.XY.offset(z_mouth)
+    return (plane.rotated((180, 0, 0)) if up else plane) * lead_in(p, r, drop=drop)
+
+
 def _hinge_zones(p, height: float, axis_x: float) -> dict[str, Part]:
-    """Hinge solids about the axis: knuckles, pin and the keep-outs they need."""
+    """Hinge solids about the axis: knuckles, pin and the keep-outs they need.
+
+    With `Hinge.PIN` there is no pin: the stub's knuckles carry the Pin's press-fit hole
+    and the Door's its clearance hole, `knuckle_spacing` apart along the Pin, with a lead-in
+    at each mouth a Pin enters from above. A mouth on a knuckle's underside is its own
+    45° lead-in: the spike above it rises toward the hole.
+    """
+    pins = p.hinge == Hinge.PIN
     r_pin = p.pin_diameter / 2
     r_k = knuckle_radius(p)
     r_c = r_k + p.gap  # keep-out radius around a knuckle
     slope = math.tan(math.radians(p.knuckle_cone))
-    # Half the vertical gap between facing spikes: `gap` along their normal, plus how far a
-    # ridge between facets stands proud of a facet once the Door has turned part of a facet.
-    ridge = r_c * (1 - math.cos(math.pi / p.knuckle_facets)) / slope
-    d = (p.gap / math.sin(math.radians(p.knuckle_cone)) + ridge) / 2
+    if pins:
+        # The Pin, not a gap, locates the Door: facing spikes sit the spacing apart along it.
+        d = p.knuckle_spacing / 2
+        r_stub, r_door = p.pin_press_hole_vertical / 2, p.pin_clearance_hole / 2
+    else:
+        # Half the vertical gap between facing spikes: `gap` along their normal, plus how far
+        # a ridge between facets stands proud of a facet once the Door has turned part of one.
+        ridge = r_c * (1 - math.cos(math.pi / p.knuckle_facets)) / slope
+        d = (p.gap / math.sin(math.radians(p.knuckle_cone)) + ridge) / 2
+        r_stub, r_door = r_pin, r_pin + p.gap
     # Spike apexes: the two knuckle interfaces sit at a third and two thirds of the height
     # at the knuckle rim.
     a1 = height / 3 + r_k / slope
@@ -128,23 +169,33 @@ def _hinge_zones(p, height: float, axis_x: float) -> dict[str, Part]:
         return (ring & _below_spike(p, upper)) - _below_spike(p, lower)
 
     full = _column(r_k, 0, height)
-    stub_knuckles = (
-        (full & _below_spike(p, a1 - d))
-        + (full - _below_spike(p, a2 + d))
-        + _column(r_pin, 0, height)
-    )
-    door_knuckle = between(r_pin + p.gap, r_k, a1 + d, a2 - d)
+    stub_knuckles = (full & _below_spike(p, a1 - d)) + (full - _below_spike(p, a2 + d))
+    if not pins:
+        stub_knuckles = stub_knuckles + _column(r_pin, 0, height)
+    door_knuckle = between(r_door, r_k, a1 + d, a2 - d)
     # Where the Door's knuckle is, grown by the gap: the stub keeps out.
-    door_keepout = between(r_pin, r_c, a1 - d, a2 + d)
+    door_keepout = between(r_stub, r_c, a1 - d, a2 + d)
     # Where the stub's knuckles and pin are, grown by the gap: the Door keeps out.
-    stub_keepout = _column(r_c, -1, height + 1) - between(r_pin + p.gap, r_c + 1, a1 + d, a2 - d)
+    stub_keepout = _column(r_c, -1, height + 1) - between(r_door, r_c + 1, a1 + d, a2 - d)
     place = Pos(axis_x, 0, 0)
-    return {
+    zones = {
         "stub_knuckles": place * stub_knuckles,
         "door_knuckle": place * door_knuckle,
         "door_keepout": place * door_keepout,
         "stub_keepout": place * stub_keepout,
     }
+    if pins:
+        drop = 1 / slope
+        stub_hole = (
+            _column(r_stub, -1, height + 1)
+            + _mouth(p, r_stub, 0, up=False)
+            + _mouth(p, r_stub, height)
+            + _mouth(p, r_stub, a1 - d - r_stub * drop, drop)
+        )
+        door_hole = _mouth(p, r_door, a2 - d - r_door * drop, drop)
+        zones["stub_hole"] = place * stub_hole
+        zones["door_hole"] = place * door_hole
+    return zones
 
 
 def _half_ring(p, bore_d: float, height: float, side: int) -> Part:
@@ -252,6 +303,8 @@ def cradle_stub(p, bore_d: float, height: float, latch_height: float | None = No
     zones = _hinge_zones(p, height, hinge_axis_x(p, bore_d))
     body = _half_ring(p, bore_d, height, -1) + _hinge_web(p, bore_d, height, -1)
     body = body - zones["door_keepout"] + zones["stub_knuckles"]
+    if "stub_hole" in zones:
+        body = body - zones["stub_hole"]
     body = body + _keeper(p, bore_d, h)
     return body - bore_cut(bore_d, height)
 
@@ -262,8 +315,16 @@ def door(p, bore_d: float, height: float, latch_height: float | None = None) -> 
     zones = _hinge_zones(p, height, hinge_axis_x(p, bore_d))
     body = _half_ring(p, bore_d, height, +1) + _hinge_web(p, bore_d, height, +1)
     body = body - zones["stub_keepout"] + zones["door_knuckle"]
+    if "door_hole" in zones:
+        body = body - zones["door_hole"]
     body = body + _latch(p, bore_d, h)
     return body - bore_cut(bore_d, height)
+
+
+def pin(p, bore_d: float, height: float) -> Part:
+    """The hinge's Pin, assembled: the filament offcut on the hinge axis, cut flush with
+    the knuckles' ends. Never printed."""
+    return Pos(hinge_axis_x(p, bore_d), 0, 0) * _column(p.pin_stock_diameter / 2, 0, height)
 
 
 def pose_door(p, part: Part, bore_d: float, pose: Pose | str) -> Part:
@@ -272,6 +333,12 @@ def pose_door(p, part: Part, bore_d: float, pose: Pose | str) -> Part:
         return part
     axis = Axis((hinge_axis_x(p, bore_d), 0, 0), (0, 0, 1))
     return part.rotate(axis, p.open_angle)
+
+
+def door_print_offset(p, closed: Part, gap: float) -> Pos:
+    """Where a `print` pose lays a closed Door: moved off the split, `gap` clear of its stub's
+    knuckles."""
+    return Pos(0, knuckle_radius(p) + gap - closed.bounding_box().min.Y, 0)
 
 
 # --- Cart collar: a sliding body on a T-headed rib, and a Door ---
