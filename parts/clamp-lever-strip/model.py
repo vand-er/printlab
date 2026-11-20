@@ -21,6 +21,7 @@ from dataclasses import dataclass
 
 from build123d import Part, Pos, Text, extrude
 
+from printlab import clamp as clamps
 from printlab.clamp import (  # noqa: F401  cap_radius and knuckle_radius, for the tests
     ClampParams,
     cap_radius,
@@ -29,14 +30,13 @@ from printlab.clamp import (  # noqa: F401  cap_radius and knuckle_radius, for t
     locked_bodies,
     pose_bodies,
 )
-from printlab.collar import EMBED, Hinge, Pose, box, carriage_half_width
+from printlab.collar import EMBED, Pose, box, carriage_half_width
 
 GRAM_BUDGET = 20.0  # g; the CLI warns above this
 
 
 @dataclass(frozen=True)
 class Params(ClampParams):
-    hinge: Hinge = Hinge.PIN  # ADR 0003: every print-in-place knuckle fused in PETG
     # The strip
     strokes: tuple[float, ...] = (0.3, 0.6, 0.9)  # mm, one Clamp per Stroke
     pitch: float = 30.0  # mm between Clamp centres; room for open Doors
@@ -85,44 +85,12 @@ def build(params: Params = Params(), pose: Pose | str = Pose.PRINT) -> dict[str,
     return bodies
 
 
-# (Pin, the part it turns in, the part it presses into)
-PIN_JOINTS = (
-    ("pin-battery", "battery-door", "cradle"),
-    ("pin-cart", "cart-door", "cart-body"),
-    ("pin-pivot", "lever", "cradle"),
-    ("pin-crank", "link", "lever"),
-    ("pin-link", "link", "cart-body"),
-)
-
-
 def fit_pairs(
     p: Params, pose: Pose | str = Pose.CLOSED
 ) -> tuple[tuple[str, str] | tuple[str, str, float | None], ...]:
-    """The bodies that move against each other in `pose`, for the nudge audit. As printed,
-    only the Cart collar's body slides on its rib. Assembled, each Pin turns in one part at
-    the Pin clearance and presses into another, and each cap into its Pin: those only mustn't
-    overlap (None). Each cap holds its part on its Pin a gap off, the Lever rests on the
-    Cradle a gap off, and the pivot cap stands `cap_clearance` off the crank Pin orbiting it."""
-    names = [label_name(s) for s in p.strokes]
-    if Pose(pose) == Pose.PRINT:
-        return tuple((f"cradle-{s}", f"cart-body-{s}") for s in names)
-    clearance = (p.pin_clearance_hole - p.pin_stock_diameter) / 2
-    pairs = []
-    for s in names:
-        pairs += [(f"{pin}-{s}", f"{turns}-{s}", clearance) for pin, turns, _ in PIN_JOINTS]
-        pairs += [(f"{holds}-{s}", f"{pin}-{s}", None) for pin, _, holds in PIN_JOINTS]
-        pairs += [(f"cap-{j}-{s}", f"pin-{j}-{s}", None) for j in ("pivot", "crank", "link")]
-        pairs += [
-            (f"cradle-{s}", f"cart-body-{s}"),
-            (f"cradle-{s}", f"lever-{s}"),
-            (f"cart-body-{s}", f"link-{s}"),
-            (f"cap-pivot-{s}", f"lever-{s}"),
-            (f"cap-crank-{s}", f"link-{s}"),
-            (f"cap-link-{s}", f"link-{s}"),
-            (f"cap-pivot-{s}", f"pin-crank-{s}", p.cap_clearance),
-            (f"cradle-{s}", f"battery-door-{s}", None),
-            (f"cart-body-{s}", f"cart-door-{s}", None),
-            (f"lever-{s}", f"link-{s}", None),
-            (f"cap-pivot-{s}", f"link-{s}", None),
-        ]
-    return tuple(pairs)
+    """Each Clamp's fit pairs in `pose` (`printlab.clamp.fit_pairs`), for the nudge audit."""
+    return tuple(
+        (f"{a}-{s}", f"{b}-{s}", *rest)
+        for s in (label_name(stroke) for stroke in p.strokes)
+        for a, b, *rest in clamps.fit_pairs(p, pose)
+    )

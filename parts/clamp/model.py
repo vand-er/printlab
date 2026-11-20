@@ -1,15 +1,18 @@
 """The Clamp: holds a Cart seated and coaxial on the Battery with a fixed Stroke.
 
-One print-in-place file, printed closed with the Battery axis vertical (Z): a Cradle
-spanning the Seat, the 12 mm Battery collar gripping the top of the Battery above the
-fire button, the sliding Cart collar gripping the brass base, and the over-centre Lever
+A Cradle spanning the Seat, the 12 mm Battery collar gripping the top of the Battery above
+the fire button, the sliding Cart collar gripping the brass base, and the over-centre Lever
 on the back (opposite the fire button), lying flat when locked.
 
 The geometry is the Lever strip's, from `printlab.clamp` (frame and builders described
-there), at one Stroke and without a label. For pocket carry every sharp outside edge
-(not in a bore, with a stretch clear of every other body) gets a 45° chamfer of
-`edge_break`; an edge that only ends at a joint is still an outside edge.
-The sections stay solid, for clear PETG.
+there), at one Stroke and without a label. Every joint that turns is assembled on a Pin
+(ADR 0003). The `print` pose (the default, and what is exported) lays the bodies apart on
+the bed without Pins; `closed` and `open` are the assembled Clamp, each Pin a `pin-…` body.
+
+For pocket carry every sharp outside edge of a printed body (not in a bore, with a stretch
+clear of every other body, Pins included) gets a 45° chamfer of `edge_break`; an edge that
+only ends at a joint is still an outside edge. An edge facing a Pin is a joint, so no
+break cuts into a Pin hole or its lead-in. The sections stay solid, for clear PETG.
 """
 
 import math
@@ -30,15 +33,20 @@ from build123d import (
     revolve,
 )
 
-from printlab.clamp import (
+from printlab.clamp import (  # noqa: F401  cap_radius, fit_pairs, knuckle_radius, latch_arms: for the tests and the nudge audit
     ClampParams,
     battery_bore,
+    cap_radius,
     cart_bore,
-    latch_arms,  # noqa: F401  each Door's Latch arm, for the tests
+    fit_pairs,
+    knuckle_radius,
+    latch_arms,
     locked_bodies,
     pose_bodies,
 )
 from printlab.collar import Pose
+
+GRAM_BUDGET = 5.0  # g, about what the Clamp on printed pins was; the CLI warns above this
 
 SHARP_ANGLE = 115.0  # degrees; a convex edge whose faces meet under this is sharp
 # Breaking an edge can bare the edge facing it on the next body, so passes run until one
@@ -57,7 +65,7 @@ class Params(ClampParams):
     # The shared Clamp sizes (`ClampParams`) start at the Test plate's middle bores.
     stroke: float = 0.6  # mm, the Lever strip's pick
     # Pocket carry
-    footprint_limit: tuple[float, float] = (27.0, 30.0)  # mm, X × Y the Clamp may cover
+    footprint_limit: tuple[float, float] = (26.0, 30.0)  # mm, X × Y the Clamp may cover
     edge_break: float = 0.4  # mm, 45° chamfer on every sharp outside edge
     # mm past the gap within which an edge faces another body; covers an edge diagonally
     # across the gap from another body's edge (gap·√2)
@@ -184,7 +192,9 @@ def _cutter(body: Part, edge: Edge, faces: list[Face], size: float) -> Part | No
 
 
 def break_edges(p: Params, bodies: dict[str, Part]) -> dict[str, Part]:
-    """Every body with each sharp outside edge chamfered by `edge_break`."""
+    """Every printed body with each sharp outside edge chamfered by `edge_break`. Pins are
+    not printed, so they are left as they are; an edge facing one is a joint, so no break
+    cuts into a Pin hole."""
     near, tried = None, []
     for _ in range(MAX_BREAK_PASSES):
         bodies, broken = _break_pass(p, bodies, near, Compound(children=tried) if tried else None)
@@ -206,6 +216,9 @@ def _break_pass(
     """
     broken, edges_broken = {}, []
     for name, body in bodies.items():
+        if name.startswith("pin-"):
+            broken[name] = body
+            continue
         failed = []
         sharp = sharp_outside_edges(p, bodies, name, near, tried)
         edges_broken += sharp
@@ -275,12 +288,12 @@ def _find(body: Part, original: Edge) -> Edge | None:
 
 
 @lru_cache(maxsize=4)
-def _printed(params: Params) -> dict[str, Part]:
-    """The bodies as printed, edges broken. Cached: breaking takes most of a build, and
-    each pose of the same Params reuses it."""
+def _broken(params: Params) -> dict[str, Part]:
+    """The bodies locked, Pins too, edges broken. Cached: breaking takes most of a build,
+    and each pose of the same Params reuses it."""
     return break_edges(params, locked_bodies(params, params.stroke))
 
 
-def build(params: Params = Params(), pose: Pose | str = Pose.CLOSED) -> dict[str, Part]:
+def build(params: Params = Params(), pose: Pose | str = Pose.PRINT) -> dict[str, Part]:
     """The Clamp's named bodies in `pose` (see `Pose`)."""
-    return pose_bodies(params, params.stroke, _printed(params), pose)
+    return pose_bodies(params, params.stroke, _broken(params), pose)
