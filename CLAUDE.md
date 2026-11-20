@@ -43,6 +43,7 @@ Add a helper to `src/printlab/` only once a second part needs it.
 - Minimum wall 1.2 mm for load-bearing parts.
 - Use the least filament that keeps full strength: remove material only where no load runs, and orient parts to print without supports.
 - Orient snap-fit beams so they bend within the layer plane, never across layer lines.
+- Joints that turn are assembled on Pins, never printed in place: clear PETG fuses them (ADR 0003).
 - FDM holes print undersize. Use the measured offsets from the `hole-gauge` part once it has been printed; until then, add a 0.2 mm clearance.
 - Check every number taken from elsewhere against `docs/research/prior-art/`. The table in `3dp-mcp-server.md` lists values known to be wrong.
 

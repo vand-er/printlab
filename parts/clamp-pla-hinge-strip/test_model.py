@@ -68,7 +68,10 @@ def test_notes_report_the_latch_holding_across_the_petg_gap():
     # ticket #17: measure and report what the Latch needs at petg_gap. The target is the depth
     # the gap strip's hook caught (#16 defaults: keeper_depth 0.8 less gap 0.3 = 0.5 mm).
     lines = model.notes(model.build())
-    assert "Latch hook holds 0.50 mm behind the keeper past the 0.8 mm PETG gap (keeper_depth 1.3 mm)" in lines
+    assert (
+        "Latch hook holds 0.50 mm behind the keeper past the 0.8 mm PETG gap (keeper_depth 1.3 mm)"
+        in lines
+    )
 
 
 def test_open_doors_clear_each_other():
