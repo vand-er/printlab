@@ -13,22 +13,10 @@ Rows run along X, front to back: vertical, clearance, horizontal. Everything sta
 import math
 from dataclasses import dataclass
 
-from build123d import (
-    Align,
-    CenterArc,
-    Cylinder,
-    Face,
-    Line,
-    Part,
-    Plane,
-    Polygon,
-    Pos,
-    Wire,
-    extrude,
-    loft,
-)
+from build123d import Align, Cylinder, Part, Plane, Polygon, Pos, extrude
 
 from printlab.collar import box
+from printlab.pinhole import ROOF, lead_in, teardrop
 from printlab.strip import LabelParams, label_at, label_pocket
 
 # g; the CLI warns above this. Ticket #20 hoped for about 1.5 g, but nine holes 12 mm deep in
@@ -37,9 +25,6 @@ GRAM_BUDGET = 2.0
 SEPARATE_STL = {"labels": "label-"}  # the labels print in white PLA, from their own STL
 
 ROWS = ("vertical", "clearance", "horizontal")
-ROOF = 45.0  # degrees from vertical: the horizontal holes' pointed roof
-LEAD_IN = 45.0  # degrees: every lead-in chamfer
-FUSE = 0.01  # mm two solids overlap so they fuse into one
 
 
 @dataclass(frozen=True)
@@ -88,33 +73,13 @@ def _row_front(p: Params, row: str) -> float:
     return y
 
 
-def _teardrop(r: float) -> Face:
-    """A circle of radius r in the XY plane, centred on the origin, with a pointed roof on +Y."""
-    a = math.radians(ROOF)
-    left, right = (-r * math.sin(a), r * math.cos(a)), (r * math.sin(a), r * math.cos(a))
-    apex = (0, r / math.cos(a))
-    arc = CenterArc((0, 0), r, 90 + ROOF, 360 - 2 * ROOF)
-    return Face(Wire([arc, Line(right, apex), Line(apex, left)]))
-
-
-def _lead_in(r: float, depth: float, roofed: bool) -> Part:
-    """The mouth's cut, in a frame whose +Z points into the hole: r + depth at z = 0,
-    r at z = depth, 45° between."""
-    grow = depth * math.tan(math.radians(LEAD_IN))
-    if roofed:
-        mouth, inner = _teardrop(r + grow), _teardrop(r)
-    else:
-        mouth, inner = Face(Wire.make_circle(r + grow)), Face(Wire.make_circle(r))
-    return loft([Pos(0, 0, -FUSE) * mouth, Pos(0, 0, depth) * inner])
-
-
 def _vertical(p: Params, size: float, x: float, y: float) -> Part:
     """A tube on the bed, its hole right through, the lead-in at the top."""
     h = p.knuckle_stack
     up = (Align.CENTER, Align.CENTER, Align.MIN)
     tube = Cylinder(_outer_radius(p, size), h, align=up)
     tube -= Pos(0, 0, -1) * Cylinder(size / 2, h + 2, align=up)
-    tube -= Plane.XY.offset(h).rotated((180, 0, 0)) * _lead_in(size / 2, p.pin_lead_in, False)
+    tube -= Plane.XY.offset(h).rotated((180, 0, 0)) * lead_in(size / 2, p.pin_lead_in, False)
     return Pos(x, y, 0) * tube
 
 
@@ -133,9 +98,9 @@ def _horizontal(p: Params, size: float, x: float, y: float) -> Part:
     bar = extrude(xz * outline, -length)  # along +Y from y = 0
     # x_dir -X, so the teardrop's +Y (its roof) lands on +Z.
     hole_plane = Plane(origin=(0, -1, centre_z), x_dir=(-1, 0, 0), z_dir=(0, 1, 0))
-    bar -= extrude(hole_plane * _teardrop(r), length + 2)
+    bar -= extrude(hole_plane * teardrop(r), length + 2)
     mouth = Plane(origin=(0, length, centre_z), x_dir=(1, 0, 0), z_dir=(0, -1, 0))
-    bar -= mouth * _lead_in(r, p.pin_lead_in, True)
+    bar -= mouth * lead_in(r, p.pin_lead_in, True)
     return Pos(x, y, 0) * bar
 
 

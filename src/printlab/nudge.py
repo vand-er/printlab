@@ -4,6 +4,7 @@
 and a slow build takes minutes per field otherwise.
 """
 
+import inspect
 import os
 from collections.abc import Collection
 from concurrent.futures import ProcessPoolExecutor
@@ -66,8 +67,14 @@ def problems(
     (as printed), and `fit_problems` in every pose."""
     module = load_part(part)
     params = nudged(module.Params(), field, factor)
-    if isinstance(pairs, str):  # a function in the part's model, when a nudge renames bodies
-        pairs = getattr(module, pairs)(params)
+
+    def pairs_in(pose: str) -> tuple:
+        """A function in the part's model, when a nudge renames bodies; it may take the pose."""
+        if not isinstance(pairs, str):
+            return pairs
+        fn = getattr(module, pairs)
+        return fn(params, pose=pose) if "pose" in inspect.signature(fn).parameters else fn(params)
+
     found = []
     try:
         for i, pose in enumerate(poses):
@@ -77,7 +84,7 @@ def problems(
             bodies = module.build(params, *args)
             if i == 0:
                 found += [f"{n}: {q}" for n, b in bodies.items() for q in check_part(b).problems]
-            found += fit_problems(bodies, pairs, params.gap, pose)
+            found += fit_problems(bodies, pairs_in(args[0]), params.gap, pose)
     except Exception as error:  # a nudge that cannot build at all is a failure too
         found.append(f"build: {error!r}")
     return found
