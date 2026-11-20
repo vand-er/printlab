@@ -375,9 +375,9 @@ def test_no_load_bearing_wall_is_under_the_minimum(printed):
 
 # --- Nudge audit ---
 
-# Fields that feed the toggle: the Lever, Link, caps, their Pin holes and the Cart collar's
+# Fields that feed the linkage: the Lever, Link, caps, their Pin holes and the Cart collar's
 # slide. The collar builders' own fields are nudged by the Test plate, which shares them.
-TOGGLE_FIELDS = (
+LINKAGE_FIELDS = (
     "lever_face_x", "pivot_offset", "crank_radius", "link_length", "past_centre",
     "link_pin_height", "lever_width", "link_width", "lug_width", "cap_thickness",
     "cap_clearance", "cradle_back_depth", "battery_collar_height", "gap", "knuckle_wall",
@@ -392,12 +392,12 @@ def test_passes_the_audits_checks_unnudged():
 
 @pytest.fixture(scope="module")
 def nudges():
-    """Every toggle field nudged ±10 %, run once across worker processes."""
-    return nudge.audit("clamp-lever-strip", "fit_pairs", POSES, only=TOGGLE_FIELDS)
+    """Every linkage field nudged ±10 %, run once across worker processes."""
+    return nudge.audit("clamp-lever-strip", "fit_pairs", POSES, only=LINKAGE_FIELDS)
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize("factor", nudge.FACTORS)
-@pytest.mark.parametrize("field", TOGGLE_FIELDS)
-def test_toggle_survives_plus_minus_ten_percent(field, factor, nudges):
+@pytest.mark.parametrize("field", LINKAGE_FIELDS)
+def test_linkage_survives_plus_minus_ten_percent(field, factor, nudges):
     assert nudges[(field, factor)] == []

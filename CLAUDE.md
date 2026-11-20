@@ -20,6 +20,7 @@ src/printlab/export.py        export_part(): one Part or {name: Part} -> STEP, S
 src/printlab/collar.py        CollarParams, Pose; hinge, Latch, Battery and Cart collar builders
 src/printlab/strip.py         LabelParams, StripParams; sample strips: Cradle stubs in a row on a PETG strip, PLA labels
 src/printlab/clamp.py         ClampParams; Cradle, Lever, Link and linkage, shared by the Lever strip and Clamp
+src/printlab/pinhole.py       teardrop(), lead_in(): roofed Pin holes and their lead-ins
 src/printlab/nudge.py         the ±10 % Params nudge: nudged(), and audit() across worker processes
 src/printlab/parts.py         part_names(), load_part(): find and import parts/<name>/model.py
 src/printlab/cli.py           the `printlab` command: build, list
