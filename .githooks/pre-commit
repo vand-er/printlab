@@ -1,5 +1,6 @@
 #!/bin/sh
-# Lint and fast tests before every commit. Enable once per clone: git config core.hooksPath .githooks
+# Lint and the repo-wide checks before every commit; part tests run in the implementer's loop and CI.
+# Enable once per clone, as a relative path so every worktree finds it: git config core.hooksPath .githooks
 set -e
 uv run ruff check .
-uv run pytest -q
+uv run pytest -q -n 0 tests/test_standards.py tests/test_glossary.py tests/test_layout.py
