@@ -1,6 +1,6 @@
 """Sample strips: Battery collar samples in a row on a PETG strip, each labelled in white PLA.
 
-Shared by the gap strip and the PLA hinge strip. Each sample is a Cradle stub on the strip with
+Used by the gap strip; the Pin strip uses its labels. Each sample is a Cradle stub on the strip with
 a print-in-place Door; `samples` are the per-sample Params, left to right. The labels are buried
 in the strip's bottom, a `label_clearance` clear so the slicer splits them off.
 """

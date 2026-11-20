@@ -36,13 +36,25 @@ def numeric_fields(params_type) -> list[str]:
     return [f.name for f in fields(params_type) if numeric(f.default)]
 
 
+def fit_problems(
+    bodies: dict, pairs: tuple[tuple[str, str] | tuple[str, str, float], ...], gap: float, pose: str
+) -> list[str]:
+    """`check_fit` on each pair whose bodies are both in this pose; a `print` pose has no Pins."""
+    found = []
+    for a, b, *clearance in pairs:  # a pair may name its clearance; else the gap
+        if a in bodies and b in bodies:
+            report = check_fit(bodies[a], bodies[b], clearance[0] if clearance else gap)
+            found += [f"{pose} {a}/{b}: {q}" for q in report.problems]
+    return found
+
+
 def problems(
     part: str, field: str, factor: float,
     pairs: tuple[tuple[str, str] | tuple[str, str, float], ...] | str,
     poses: tuple[str, ...],
 ) -> list[str]:
     """What breaks with one field nudged: `check_part` on each body in the first pose
-    (as printed), and `check_fit` on each moving pair in every pose."""
+    (as printed), and `fit_problems` in every pose."""
     module = load_part(part)
     params = nudged(module.Params(), field, factor)
     if isinstance(pairs, str):  # a function in the part's model, when a nudge renames bodies
@@ -56,9 +68,7 @@ def problems(
             bodies = module.build(params, *args)
             if i == 0:
                 found += [f"{n}: {q}" for n, b in bodies.items() for q in check_part(b).problems]
-            for a, b, *clearance in pairs:  # a pair may name its clearance; else the gap
-                report = check_fit(bodies[a], bodies[b], clearance[0] if clearance else params.gap)
-                found += [f"{pose} {a}/{b}: {q}" for q in report.problems]
+            found += fit_problems(bodies, pairs, params.gap, pose)
     except Exception as error:  # a nudge that cannot build at all is a failure too
         found.append(f"build: {error!r}")
     return found

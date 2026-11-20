@@ -33,14 +33,6 @@ class Slide(StrEnum):
 
 
 @dataclass(frozen=True)
-class PlaPin:
-    """A hinge pin printed in PLA, which doesn't bond to PETG, with washers between the knuckles."""
-
-    clearance: float  # mm, every PLA-to-PETG face
-    cap: float  # mm of PETG under and over the pin, closing it in
-
-
-@dataclass(frozen=True)
 class CollarParams:
     """The sizes every collar builder reads; each part's `Params` extends it."""
 
@@ -61,8 +53,6 @@ class CollarParams:
     pin_clearance_hole: float = 2.15  # mm, the Pin turns freely
     pin_lead_in: float = 0.3  # mm, 45° chamfer at each Pin hole's mouth
     knuckle_spacing: float = 0.2  # mm between stacked knuckles along a Pin
-    # Set, the stub's pin becomes a captured PLA body with flat washers, and `gap` holds PETG only.
-    pla_pin: PlaPin | None = None
     # Latch: horizontal hook arm on the Door, keeper on the stub
     latch_height: float = 4.5  # mm, arm height from the bed
     arm_thickness: float = 1.4  # mm, radial; the arm bends in the XY plane
@@ -98,13 +88,8 @@ def outer_radius(p, bore_d: float) -> float:
     return bore_d / 2 + p.wall
 
 
-def _pin_clearance(p) -> float:
-    """Between the pin and the knuckles that turn on it."""
-    return p.gap if p.pla_pin is None else p.pla_pin.clearance
-
-
 def knuckle_radius(p) -> float:
-    return p.pin_diameter / 2 + _pin_clearance(p) + p.knuckle_wall
+    return p.pin_diameter / 2 + p.gap + p.knuckle_wall
 
 
 def hinge_axis_x(p, bore_d: float) -> float:
@@ -131,67 +116,8 @@ def _below_spike(p, apex: float) -> Part:
     return Pos(0, 0, bottom) * extrude(base, rise, taper=p.knuckle_cone)
 
 
-def _annulus(r_in: float, r_out: float, z0: float, z1: float) -> Part:
-    return _column(r_out, z0, z1) - _column(r_in, z0 - 1, z1 + 1)
-
-
-def _pla_levels(p, height: float) -> tuple[float, float]:
-    """(z1, z2): tops of the lower stub knuckle and of the Door's knuckle. Three equal knuckles,
-    `gap` apart, each space holding a washer."""
-    k = (height - 2 * p.gap) / 3
-    return k, 2 * k + p.gap
-
-
-def _cone_apex(p, corner_r: float, corner_z: float) -> float:
-    """Apex of a knuckle-cone spike whose faces stand `gap` from a round edge at (r, z)."""
-    slope = math.tan(math.radians(p.knuckle_cone))  # mm inward per mm up
-    return corner_z + corner_r / slope + p.gap * math.sqrt(1 + 1 / slope**2)
-
-
-def _pla_hinge_zones(p, height: float, axis_x: float) -> dict[str, Part]:
-    """The PLA-pin hinge: flat knuckle ends on PLA washers, and the PLA body itself.
-
-    Where a web reaches past a knuckle over a PETG gap, its face slopes at `knuckle_cone`,
-    `gap` from the round knuckle edge beyond, so it needs no support. Faceted, not true cones:
-    the facets lie outside the cone, so they only stand further off.
-    """
-    c, cap, g = p.pla_pin.clearance, p.pla_pin.cap, p.gap
-    r_pin = p.pin_diameter / 2
-    r_bore = r_pin + c
-    r_k = knuckle_radius(p)
-    r_c = r_k + g  # keep-out radius around a knuckle
-    z1, z2 = _pla_levels(p, height)
-    top = height + 1
-
-    pin_bore = _column(r_bore, cap, height - cap)
-    stub_knuckles = _column(r_k, 0, z1) + _column(r_k, z2 + g, height) - pin_bore
-    door_knuckle = _annulus(r_bore, r_k, z1 + g, z2)
-    # The Door's neck from its knuckle to its web, under a cone clear of the lower stub knuckle.
-    neck = _annulus(r_k, r_c + 1, -1, z2) - _below_spike(p, _cone_apex(p, r_k, z1))
-    door_zone = door_knuckle + neck
-    # The stub keeps `gap` from the Door's knuckle, its roof a cone clear of the knuckle's top.
-    window = _annulus(r_k, r_c, z1, top) & _below_spike(p, _cone_apex(p, r_k, z2))
-    door_keepout = pin_bore + _column(r_k, z1, z2 + g) + window
-    stub_keepout = _column(r_c, -1, top) - door_zone
-    pla = (
-        _column(r_pin, cap + c, height - cap - c)
-        + _column(r_k, z1 + c, z1 + g - c)
-        + _column(r_k, z2 + c, z2 + g - c)
-    )
-    place = Pos(axis_x, 0, 0)
-    return {
-        "stub_knuckles": place * stub_knuckles,
-        "door_knuckle": place * door_knuckle,
-        "door_keepout": place * door_keepout,
-        "stub_keepout": place * stub_keepout,
-        "pla": place * pla,
-    }
-
-
 def _hinge_zones(p, height: float, axis_x: float) -> dict[str, Part]:
     """Hinge solids about the axis: knuckles, pin and the keep-outs they need."""
-    if p.pla_pin is not None:
-        return _pla_hinge_zones(p, height, axis_x)
     r_pin = p.pin_diameter / 2
     r_k = knuckle_radius(p)
     r_c = r_k + p.gap  # keep-out radius around a knuckle
@@ -346,11 +272,6 @@ def door(p, bore_d: float, height: float, latch_height: float | None = None) -> 
     body = body - zones["stub_keepout"] + zones["door_knuckle"]
     body = body + _latch(p, bore_d, h)
     return body - bore_cut(bore_d, height)
-
-
-def pla_hinge(p, bore_d: float, height: float) -> Part:
-    """A `pla_pin` collar's PLA body: the pin and its two washers, in one piece."""
-    return _hinge_zones(p, height, hinge_axis_x(p, bore_d))["pla"]
 
 
 def pose_door(p, part: Part, bore_d: float, pose: Pose | str) -> Part:
