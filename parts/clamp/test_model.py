@@ -1,31 +1,32 @@
 import math
+from dataclasses import replace
 from itertools import combinations
 
 import pytest
 import trimesh
-from build123d import Axis, Box, GeomType, Pos, Vector
+from build123d import Axis, Box, Cylinder, GeomType, Pos, Rot, Vector
 
 from printlab import nudge
 from printlab.checks import check_fit, check_part, hole_diameters
+from printlab.export import PETG_DENSITY
 from printlab.parts import load_part
 
 model = load_part("clamp")
 
-BODIES = ("cradle", "battery-door", "cart-body", "cart-door", "lever", "link")
-# Moving pairs and their clearance; every other pair must not overlap.
-FIT_PAIRS = (
-    ("cradle", "battery-door"),
-    ("cradle", "cart-body"),
-    ("cart-body", "cart-door"),
-    ("cradle", "lever"),
-    ("lever", "link"),
-    ("cart-body", "link"),
-)
+CAPS = ("cap-pivot", "cap-crank", "cap-link")
+PINS = ("pin-battery", "pin-cart", "pin-pivot", "pin-crank", "pin-link")
+BODIES = ("cradle", "battery-door", "cart-body", "cart-door", "lever", "link", *CAPS)
+FLAT = ("lever", "link", *CAPS)  # print flat, Pin holes vertical
+
+
+@pytest.fixture(scope="module")
+def printed():
+    return model.build()
 
 
 @pytest.fixture(scope="module")
 def closed():
-    return model.build()
+    return model.build(pose="closed")
 
 
 @pytest.fixture(scope="module")
@@ -38,22 +39,184 @@ def centre():
     return model.build(pose="centre")
 
 
-def test_every_body_is_one_valid_solid_that_fits_the_printer(closed):
-    assert set(closed) == set(BODIES)
-    for name, body in closed.items():
+# --- As printed ---
+
+
+def test_prints_every_body_apart_as_one_valid_solid_and_no_pins(printed):
+    assert set(printed) == set(BODIES)
+    for name, body in printed.items():
         report = check_part(body)
         assert report.ok, (name, report.problems)
 
 
-def test_starts_at_the_middle_sizes(closed):
+APART = 1.0  # mm; two 0.5 mm lines, so nothing on the bed can fuse to its neighbour
+
+
+def test_bodies_lie_apart_on_the_bed_but_the_cart_collar_on_its_rib(printed):
+    params = model.Params()
+    for a, b in combinations(printed, 2):
+        if {a, b} == {"cradle", "cart-body"}:
+            continue  # the Cart collar's slide stays printed in place, a gap off its rib
+        assert printed[a].distance_to(printed[b]) > APART, (a, b)
+    for name, body in printed.items():
+        if name != "cart-body":  # it prints on the Battery collar, a gap up
+            assert body.bounding_box().min.Z == pytest.approx(0, abs=1e-6), name
+    lift = printed["cart-body"].bounding_box().min.Z
+    assert lift == pytest.approx(params.battery_collar_height + params.gap, abs=1e-6)
+
+
+def hole_axes(body):
+    """Unit axis of every round hole in a body."""
+    return [
+        face.axis_of_rotation.direction
+        for face in body.faces().filter_by(GeomType.CYLINDER)
+        if face.is_circular_concave
+    ]
+
+
+def test_lever_link_and_caps_print_flat_with_their_pin_holes_vertical(printed):
+    for b in FLAT:
+        axes = hole_axes(printed[b])
+        assert axes, b
+        assert all(abs(abs(a.Z) - 1) < 1e-6 for a in axes), b
+
+
+def test_clamp_is_within_its_gram_budget(printed):
+    # The Clamp on printed pins, before ticket #23, was about 4.9 g.
+    assert model.GRAM_BUDGET == 5.0
+    volume = sum(body.volume for body in printed.values())
+    assert volume / 1000 * PETG_DENSITY <= model.GRAM_BUDGET
+
+
+def diameters_along(body, axis):
+    """Diameters of the round holes in a body whose axis runs along `axis` (0 X, 2 Z)."""
+    return {
+        round(2 * face.radius, 3)
+        for face in body.faces().filter_by(GeomType.CYLINDER)
+        if face.is_circular_concave and abs(abs(tuple(face.axis_of_rotation.direction)[axis]) - 1) < 1e-6
+    }
+
+
+PRESS = 1.85  # mm, the Pin strip's provisional press fit, vertical and horizontal alike
+CLEARANCE = 2.15  # mm, its provisional clearance
+
+
+def test_each_pin_hole_keeps_its_size_after_the_edge_breaks(printed):
+    params = model.Params()
+    assert (params.pin_press_hole_vertical, params.pin_press_hole_horizontal) == (PRESS, PRESS)
+    assert params.pin_clearance_hole == CLEARANCE
+    # Press fits: the Lever and the caps print flat, so vertical holes; the collar stubs'
+    # knuckles stand vertical; the Cradle lug and the Cart collar's ear print their holes
+    # sideways (along X as built, laid on the bed).
+    assert PRESS in hole_diameters(printed["lever"])
+    for cap in CAPS:
+        assert hole_diameters(printed[cap]) == [PRESS], cap
+    for body in ("cradle", "cart-body"):
+        assert PRESS in diameters_along(printed[body], 0), body
+        assert PRESS in diameters_along(printed[body], 2), body
+    # Clearance: the Lever on the pivot Pin, the Link on both its Pins, the Doors on theirs.
+    assert CLEARANCE in hole_diameters(printed["lever"])
+    assert hole_diameters(printed["link"]) == [CLEARANCE]
+    for door in ("battery-door", "cart-door"):
+        assert CLEARANCE in hole_diameters(printed[door]), door
+
+
+SHELL = 0.05  # mm round each Pin hole's mouth, lead-in included, that must stay as built
+
+
+def hole_shell(params, pin, roofed):
+    """A cylinder on the Pin's axis and as long, out past its holes' lead-ins by SHELL. A
+    roofed hole (along X) adds its 45° roof: the top corner of a square standing on a corner,
+    its sides tangent to the cylinder, above where they touch it."""
+    box = pin.bounding_box()
+    along = max(range(3), key=lambda i: tuple(box.size)[i])
+    hole = params.pin_press_hole_horizontal if roofed else max(
+        params.pin_press_hole_vertical, params.pin_clearance_hole
+    )
+    r = hole / 2 + params.pin_lead_in + SHELL
+    length, c = tuple(box.size)[along], box.center()
+    rotation = {0: (0, 90, 0), 1: (90, 0, 0), 2: (0, 0, 0)}[along]
+    shell = Pos(c) * Rot(*rotation) * Cylinder(r, length)
+    if roofed:
+        square = Pos(c) * Rot(45, 0, 0) * Box(length, 2 * r, 2 * r)
+        above = Pos(c.X, c.Y, c.Z + r / math.sqrt(2) + r) * Box(length, 4 * r, 2 * r)
+        shell = shell + (square & above)
+    return shell
+
+
+PIN_PATHS = {  # the bodies each Pin passes through
+    "pin-battery": ("cradle", "battery-door"),
+    "pin-cart": ("cart-body", "cart-door"),
+    "pin-pivot": ("cradle", "lever", "cap-pivot"),
+    "pin-crank": ("lever", "link", "cap-crank"),
+    "pin-link": ("cart-body", "link", "cap-link"),
+}
+ROOFED = {("pin-pivot", "cradle"), ("pin-link", "cart-body")}  # holes printed sideways
+
+
+# A press fit 10 % wider stands a roof's apex further off its Pin than the joint margin.
+WIDE_ROOF = {"pin_press_hole_horizontal": 2.05}
+
+
+@pytest.mark.parametrize("sizes", [{}, WIDE_ROOF], ids=["default", "wide-roof"])
+def test_edge_breaks_leave_every_pin_hole_and_its_lead_in_whole(sizes, closed):
+    params = replace(model.Params(), **sizes)
+    closed = model.build(params, "closed") if sizes else closed
+    built = model.locked_bodies(params, params.stroke)  # locked, before the edge breaks
+    for pin, bodies in PIN_PATHS.items():
+        for b in bodies:
+            shell = hole_shell(params, built[pin], (pin, b) in ROOFED)
+            before, after = (built[b] & shell).volume, (closed[b] & shell).volume
+            assert after == pytest.approx(before, abs=1e-3), (pin, b)
+
+
+# --- Assembled ---
+
+
+@pytest.mark.parametrize("pose", ["closed", "open"])
+def test_assembled_has_every_pin_and_cap(pose, closed, opened):
+    bodies = {"closed": closed, "open": opened}[pose]
+    assert set(bodies) == {*BODIES, *PINS}
+
+
+PIN_CLEARANCE = 0.2  # mm a side: a 1.75 mm Pin in the 2.15 mm clearance hole
+TURNS_IN = {  # spec #18: each Pin turns in one part and presses into another
+    "pin-battery": ("battery-door", "cradle"),
+    "pin-cart": ("cart-door", "cart-body"),
+    "pin-pivot": ("lever", "cradle"),
+    "pin-crank": ("link", "lever"),
+    "pin-link": ("link", "cart-body"),
+}
+
+
+@pytest.mark.parametrize("pose", ["closed", "open"])
+def test_each_pin_turns_in_one_part_and_presses_into_the_other(pose, closed, opened):
+    bodies = {"closed": closed, "open": opened}[pose]
+    for pin, (turns, holds) in TURNS_IN.items():
+        report = check_fit(bodies[pin], bodies[turns], PIN_CLEARANCE)
+        assert report.ok, (pose, pin, report.problems)
+        assert not (bodies[pin] & bodies[holds]).solids(), (pose, pin)
+
+
+@pytest.mark.parametrize("pose", ["closed", "open"])
+def test_caps_keep_the_lever_and_the_link_from_sliding_along_x(pose, closed, opened):
+    bodies = {"closed": closed, "open": opened}[pose]
+    for moving in ("lever", "link"):
+        others = [b for n, b in bodies.items() if n != moving]
+        for dx in (-1, 1):
+            shifted = Pos(dx, 0, 0) * bodies[moving]
+            assert any((shifted & o).solids() for o in others), (pose, moving, dx)
+
+
+def test_starts_at_the_middle_sizes(printed):
     params = model.Params()
     # Spec #10: 12.8 mm Battery bore, 12.2 mm Cart bore, 0.6 mm Stroke; plus the 0.2 offset.
     assert (params.battery_nominal_bore, params.cart_nominal_bore) == (12.8, 12.2)
     assert params.stroke == 0.6
-    assert 13.0 in hole_diameters(closed["battery-door"])
-    assert 13.0 in hole_diameters(closed["cradle"])
-    assert 12.4 in hole_diameters(closed["cart-body"])
-    assert 12.4 in hole_diameters(closed["cart-door"])
+    assert 13.0 in hole_diameters(printed["battery-door"])
+    assert 13.0 in hole_diameters(printed["cradle"])
+    assert 12.4 in hole_diameters(printed["cart-body"])
+    assert 12.4 in hole_diameters(printed["cart-door"])
 
 
 def bore_axes(body, diameter):
@@ -74,20 +237,17 @@ def test_cart_and_battery_bores_are_coaxial(closed):
     assert battery | cart == {(0.0, 0.0, 1.0)}
 
 
-def check_clamp(bodies, params, pairs=FIT_PAIRS):
-    problems = []
-    for a, b in pairs:
-        problems += [(a, b, p) for p in check_fit(bodies[a], bodies[b], params.gap).problems]
-    for a, b in combinations(BODIES, 2):
-        if (a, b) not in pairs and (bodies[a] & bodies[b]).solids():
-            problems.append((a, b, "overlap"))
-    return problems
-
-
 @pytest.mark.parametrize("pose", ["closed", "open"])
-def test_every_moving_pair_fits_in_both_poses(pose, closed, opened):
+def test_every_pair_fits_in_both_poses(pose, closed, opened):
+    """Moving pairs at their clearance (the model's fit pairs); every other pair must not overlap."""
     bodies = {"closed": closed, "open": opened}[pose]
-    assert check_clamp(bodies, model.Params()) == []
+    params = model.Params()
+    pairs = model.fit_pairs(params, pose)
+    assert nudge.fit_problems(bodies, pairs, params.gap, pose) == []
+    paired = {frozenset(pair[:2]) for pair in pairs}
+    for a, b in combinations(bodies, 2):
+        if frozenset((a, b)) not in paired:
+            assert not (bodies[a] & bodies[b]).solids(), (a, b, pose)
 
 
 KEEP_OUT = 13.5  # mm below the Seat, spec #10: the fire button's top edge less a margin
@@ -106,7 +266,7 @@ def test_no_material_more_than_keep_out_below_the_seat(pose, closed, opened, cen
 def test_cart_collar_drops_by_the_stroke_and_dips_at_centre_within_its_cap(closed, opened, centre):
     params = model.Params()
     assert params.centre_drop_cap == pytest.approx(0.1)
-    for part in ("cart-body", "cart-door"):
+    for part in ("cart-body", "cart-door", "pin-cart", "pin-link", "cap-link"):
         drop = opened[part].bounding_box().min.Z - closed[part].bounding_box().min.Z
         assert drop == pytest.approx(0.6, abs=0.01), part
     extra = closed["cart-body"].bounding_box().min.Z - centre["cart-body"].bounding_box().min.Z
@@ -115,26 +275,30 @@ def test_cart_collar_drops_by_the_stroke_and_dips_at_centre_within_its_cap(close
         assert not (centre[a] & centre[b]).solids(), (a, b, "centre")
 
 
-def pin_centre(body, radius):
-    """(y, z) of the one round pin along X on a body, read from its circular edges."""
-    found = set()
-    for edge in body.edges().filter_by(GeomType.CIRCLE):
-        if abs(edge.radius - radius) < 1e-6 and abs(abs(edge.normal().X) - 1) < 1e-6:
-            found.add((round(edge.arc_center.Y, 4), round(edge.arc_center.Z, 4)))
-    (centre,) = found
-    return centre
+# Measured on the Clamp before ticket #23 (printed pins), as on the Lever strip.
+PIVOT = (-16.9, 8.6018)  # (y, z) mm
+CRANK = (-18.9822, 6.4421)
+LINK_PIN = (-9.025, 14.8)
+# Degrees between pivot-crank and pivot-Link-pin, from those centres: the crank's 8° past
+# dead centre (`past_centre`) as the pin centres show it.
+PAST_CENTRE = 7.842
 
 
-def test_locked_lever_is_past_centre_and_lies_flat_on_its_stop(closed):
+def axis_yz(pin):
+    c = pin.bounding_box().center()
+    return c.Y, c.Z
+
+
+def test_locked_lever_is_past_centre_where_it_was_and_lies_flat_on_its_stop(closed):
     params = model.Params()
-    r = params.pin_diameter / 2
-    pivot = pin_centre(closed["cradle"], r)
-    crank = pin_centre(closed["lever"], r)
-    link_pin = pin_centre(closed["cart-body"], r)
+    pivot, crank, link_pin = (axis_yz(closed[p]) for p in ("pin-pivot", "pin-crank", "pin-link"))
+    for got, before in zip((pivot, crank, link_pin), (PIVOT, CRANK, LINK_PIN)):
+        assert got == pytest.approx(before, abs=1e-3)
     u = (pivot[0] - crank[0], pivot[1] - crank[1])
     v = (link_pin[0] - pivot[0], link_pin[1] - pivot[1])
     past = math.degrees(math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1]))
-    assert abs(past) == pytest.approx(8.0, abs=1.0)
+    assert abs(past) == pytest.approx(PAST_CENTRE, abs=1e-3)
+    assert check_fit(closed["cradle"], closed["lever"], params.gap).ok
     # The Link's pull turns the Lever further; 3° that way it runs into the Cradle: its stop.
     torque = (crank[0] - pivot[0]) * (link_pin[1] - pivot[1]) - (crank[1] - pivot[1]) * (
         link_pin[0] - pivot[0]
@@ -211,14 +375,14 @@ def mesh(body):
     return trimesh.Trimesh([(v.X, v.Y, v.Z) for v in vertices], triangles)
 
 
-def test_prints_without_supports_battery_axis_vertical(closed):
+def test_prints_without_supports(printed):
     """Every downward face is on the bed or rests, across the gap, on another body."""
     params = model.Params()
     unsupported = []
-    for name, body in closed.items():
+    for name, body in printed.items():
         m = mesh(body)
         down = m.triangles_center[(m.face_normals[:, 2] < -OVERHANG) & (m.area_faces > 1e-4)]
-        others = [o for n, o in closed.items() if n != name]
+        others = [o for n, o in printed.items() if n != name]
         for x, y, z in {tuple(round(float(v), 2) for v in c) for c in down}:
             if z < 1e-3:  # on the bed
                 continue
@@ -243,11 +407,14 @@ def is_ledge(body, x, y, z):
     )
 
 
+POSES = ("print", "closed", "open")  # as printed first
+
+
 @pytest.fixture(scope="module")
 def nudges():
     """Every numeric field of the full Clamp's Params nudged ±10 %, edge breaks and all,
     run once across worker processes: {(field, factor): problems}."""
-    return nudge.audit("clamp", FIT_PAIRS, ("closed", "open"))
+    return nudge.audit("clamp", "fit_pairs", POSES)
 
 
 @pytest.mark.slow
@@ -305,4 +472,7 @@ def test_no_load_bearing_wall_is_under_the_minimum(closed):
         assert size.X >= MIN_WALL and size.Y >= MIN_WALL, b
     for field in ("wall", "knuckle_wall", "carriage_wall", "cradle_back_depth", "lug_width"):
         assert getattr(params, field) >= MIN_WALL, field
-    assert params.pin_diameter >= 2 * MIN_WALL
+    for hole in (params.pin_press_hole_vertical, params.pin_clearance_hole):
+        assert model.knuckle_radius(params) - hole / 2 >= MIN_WALL
+    # A cap only keeps a part on its Pin and carries no load: a 1.0 mm wall at the defaults.
+    assert model.cap_radius(params) - params.pin_press_hole_vertical / 2 == pytest.approx(1.0)
