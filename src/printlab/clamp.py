@@ -11,13 +11,13 @@ axis vertical (Z), Lever locked. The Cart collar sits a `gap` above the Battery 
 so the Battery Latch runs full height under the Cart Latch.
 
 Every joint that turns is assembled on a Pin (ADR 0003): the collar hinges as in
-`printlab.collar`, and the toggle joints as below. The pivot Pin presses into the lug (a
+`printlab.collar`, and the linkage joints as below. The pivot Pin presses into the lug (a
 roofed hole along X) and turns in the Lever; the crank Pin presses into the Lever and turns
 in the Link; the lower Link Pin presses into the Cart collar's ear (roofed) and turns in
 the Link. Each Pin enters from +X and carries a Pin cap on its outer end. The linkage is
 layers along X on the +X side, so each part moves in a YZ plane:
 
-    lug | Lever | pivot cap | Link | caps        (lever_face_x is the Lever's outer face)
+    lug | Lever | pivot cap | Link | outer caps  (lever_face_x is the Lever's outer face)
 
 The ear reaches out to the pivot cap's layer, over a web that carries it. The `print` pose
 lays the bodies apart on the bed; the assembled poses add each Pin as a `pin-…` body.
@@ -43,9 +43,9 @@ from build123d import (
     extrude,
 )
 
+from printlab.checks import FitPair
 from printlab.collar import (
     EMBED,
-    FUSE,
     CollarParams,
     Hinge,
     Pose,
@@ -60,13 +60,14 @@ from printlab.collar import (
     cart_rib,
     cradle_stub,
     door,
+    door_print_offset,
     knuckle_radius,
     latch_arm,
     outer_radius,
     pin,
     pose_door,
 )
-from printlab.pinhole import lead_in, roof_height, teardrop
+from printlab.pinhole import FUSE, THROUGH, lead_in, roof_height, teardrop
 
 # Numerical settings, not printed dimensions.
 SOLVE_STEPS = 100  # bisection steps when solving the crank angle for a stroke
@@ -98,7 +99,7 @@ class ClampParams(CollarParams):
     lever_width: float = 3.0  # mm, along X
     link_width: float = 2.0  # mm, along X
     lug_width: float = 2.0  # mm, along X: the Cradle lug carrying the pivot Pin
-    # Pin caps: a disc pressed on each toggle Pin's outer end
+    # Pin caps: a disc pressed on each linkage Pin's outer end
     cap_thickness: float = 1.2  # mm, along the Pin
     cap_clearance: float = 0.2  # mm, the pivot cap clear of the crank Pin orbiting it
     print_gap: float = 2.0  # mm clear between bodies laid apart on the bed (`Pose.PRINT`)
@@ -149,16 +150,16 @@ def _ear_x1(p: ClampParams) -> float:
 
 
 def linkage_layers(p: ClampParams) -> dict[str, tuple[float, float]]:
-    """X extents of the linkage's layers: lug, Lever, pivot cap, Link and the outer caps
-    ("head")."""
+    """X extents of the linkage's layers: lug, Lever, pivot cap, Link and the outer caps (the
+    crank and Link Pins' caps)."""
     x = p.lever_face_x
     lever = (x - p.lever_width, x)
     lug = (lever[0] - p.gap - p.lug_width, lever[0] - p.gap)
     pivot_cap = (x + p.gap, x + p.gap + p.cap_thickness)
     x = pivot_cap[1]
     link = (x + p.gap, x + p.gap + p.link_width)
-    head = (link[1] + p.gap, link[1] + p.gap + p.cap_thickness)
-    return {"lug": lug, "lever": lever, "pivot_cap": pivot_cap, "link": link, "head": head}
+    outer_caps = (link[1] + p.gap, link[1] + p.gap + p.cap_thickness)
+    return {"lug": lug, "lever": lever, "pivot_cap": pivot_cap, "link": link, "outer_caps": outer_caps}
 
 
 # --- Over-centre linkage kinematics (YZ plane) ---
@@ -324,17 +325,18 @@ def _x_hole(
     def at(x: float) -> Plane:  # +Z into the hole (-X), local +Y up
         return Plane(origin=(x, y, z), x_dir=(0, -1, 0), z_dir=(-1, 0, 0))
 
-    outline = teardrop(r) if roofed else Face(Wire.make_circle(r))
-    hole = extrude(at(mouth + 1) * outline, mouth + 1 - floor)
-    return hole + at(mouth) * lead_in(r, p.pin_lead_in, roofed)
+    outline = teardrop(p, r) if roofed else Face(Wire.make_circle(r))
+    hole = extrude(at(mouth + THROUGH) * outline, mouth + THROUGH - floor)
+    return hole + at(mouth) * lead_in(p, r, roofed)
 
 
 def pin_cap(p: ClampParams) -> Part:
     """A Pin cap as it prints: a disc on the bed, its vertical press-fit hole's lead-in on top."""
     t, r = p.cap_thickness, p.pin_press_hole_vertical / 2
     up = (Align.CENTER, Align.CENTER, Align.MIN)
-    cap = Cylinder(cap_radius(p), t, align=up) - Pos(0, 0, -1) * Cylinder(r, t + 2, align=up)
-    return cap - Plane.XY.offset(t).rotated((180, 0, 0)) * lead_in(r, p.pin_lead_in, False)
+    hole = Pos(0, 0, -THROUGH) * Cylinder(r, t + 2 * THROUGH, align=up)
+    cap = Cylinder(cap_radius(p), t, align=up) - hole
+    return cap - Plane.XY.offset(t).rotated((180, 0, 0)) * lead_in(p, r)
 
 
 def _cap_at(p: ClampParams, centre: tuple[float, float], x1: float) -> Part:
@@ -379,10 +381,11 @@ def cradle(p: ClampParams, stroke: float) -> Part:
     py, pz = linkage.pivot
     # The pivot Pin's roofed press-fit hole, a wall all round it; the web runs out under the ear.
     r, w = p.pin_press_hole_horizontal / 2, p.knuckle_wall
-    lug = box(lx0, lx1, py - r - w, back + EMBED, pz + roof_height(r) + w)
+    lug = box(lx0, lx1, py - r - w, back + EMBED, pz + roof_height(p, r) + w)
     web = web + box(p.lever_face_x - EMBED, _ear_x1(p), front - EMBED, ring_inside, hb)
     body = stub + cradle_back + web + rib + neck + lug
-    return body - bore_cut(battery_bore(p), hb) - _x_hole(p, r, linkage.pivot, lx0 - 1, lx1, True)
+    pivot_hole = _x_hole(p, r, linkage.pivot, lx0 - THROUGH, lx1, True)
+    return body - bore_cut(battery_bore(p), hb) - pivot_hole
 
 
 def cart_collar(p: ClampParams, stroke: float) -> tuple[Part, Part]:
@@ -411,8 +414,8 @@ def lever(p: ClampParams, linkage: Linkage) -> Part:
     x0, x1 = linkage_layers(p)["lever"]
     body = _disc_hull_prism([(linkage.pivot, knuckle_radius(p)), (crank, boss_r)] + corners, x0, x1)
     # Turns on the pivot Pin; the crank Pin presses in.
-    return body - _x_hole(p, p.pin_clearance_hole / 2, linkage.pivot, x0 - 1, x1) - _x_hole(
-        p, p.pin_press_hole_vertical / 2, crank, x0 - 1, x1
+    return body - _x_hole(p, p.pin_clearance_hole / 2, linkage.pivot, x0 - THROUGH, x1) - _x_hole(
+        p, p.pin_press_hole_vertical / 2, crank, x0 - THROUGH, x1
     )
 
 
@@ -425,7 +428,7 @@ def link(p: ClampParams, linkage: Linkage) -> Part:
     x0, x1 = linkage_layers(p)["link"]
     outline = _disc_hull_prism([(crank, eye_r), (link_pin, eye_r)] + corners, x0, x1)
     r = p.pin_clearance_hole / 2  # turns on both its Pins
-    return outline - _x_hole(p, r, crank, x0 - 1, x1) - _x_hole(p, r, link_pin, x0 - 1, x1)
+    return outline - _x_hole(p, r, crank, x0 - THROUGH, x1) - _x_hole(p, r, link_pin, x0 - THROUGH, x1)
 
 
 def _pin_bodies(p: ClampParams, linkage: Linkage) -> dict[str, Part]:
@@ -433,17 +436,17 @@ def _pin_bodies(p: ClampParams, linkage: Linkage) -> dict[str, Part]:
     cap's outer face, or a collar hinge's ends)."""
     layers = linkage_layers(p)
     crank, link_pin = linkage.crank(linkage.locked), linkage.link_pin(linkage.locked)
-    head, cap_x = layers["head"][1], layers["pivot_cap"][1]
+    outer, cap_x = layers["outer_caps"][1], layers["pivot_cap"][1]
     r = p.pin_stock_diameter / 2
     return {
         "cap-pivot": _cap_at(p, linkage.pivot, cap_x),
-        "cap-crank": _cap_at(p, crank, head),
-        "cap-link": _cap_at(p, link_pin, head),
+        "cap-crank": _cap_at(p, crank, outer),
+        "cap-link": _cap_at(p, link_pin, outer),
         "pin-battery": pin(p, battery_bore(p), p.battery_collar_height),
         "pin-cart": Pos(0, 0, cart_floor_z(p)) * pin(p, cart_bore(p), cart_collar_height(p)),
         "pin-pivot": _x_pin(r, linkage.pivot, layers["lug"][0], cap_x),
-        "pin-crank": _x_pin(r, crank, layers["lever"][0], head),
-        "pin-link": _x_pin(r, link_pin, carriage_half_width(p), head),
+        "pin-crank": _x_pin(r, crank, layers["lever"][0], outer),
+        "pin-link": _x_pin(r, link_pin, carriage_half_width(p), outer),
     }
 
 
@@ -544,7 +547,7 @@ def print_layout(p: ClampParams, bodies: dict[str, Part]) -> dict[str, Part]:
     g = p.print_gap
     out = {"cradle": bodies["cradle"], "cart-body": bodies["cart-body"]}
     battery = bodies["battery-door"]
-    out["battery-door"] = Pos(0, knuckle_radius(p) + g - battery.bounding_box().min.Y, 0) * battery
+    out["battery-door"] = door_print_offset(p, battery, g) * battery
     cart, front = bodies["cart-door"].bounding_box(), out["battery-door"].bounding_box().max.Y
     out["cart-door"] = Pos(0, front + g - cart.min.Y, -cart.min.Z) * bodies["cart-door"]
     column = [("lever", _laid_flat(bodies["lever"], True))]
@@ -571,9 +574,7 @@ PIN_JOINTS = (
 )
 
 
-def fit_pairs(
-    p: ClampParams, pose: Pose | str = Pose.CLOSED
-) -> tuple[tuple[str, str] | tuple[str, str, float | None], ...]:
+def fit_pairs(p: ClampParams, pose: Pose | str) -> tuple[FitPair, ...]:
     """One Clamp's bodies that move against each other in `pose`, for the nudge audit. As
     printed, only the Cart collar's body slides on its rib. Assembled, each Pin turns in one
     part at the Pin clearance and presses into another, and each cap into its Pin: those only

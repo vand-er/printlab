@@ -88,8 +88,9 @@ def test_each_hole_has_a_lead_in_at_its_mouth(row):
         axis = face.axis_of_rotation
         m = mouth(row, body, axis)
         start = m - 0.01 if m > 0 else m  # the first 0.01 mm inside the mouth
-        # Just inside the mouth the hole is a lead-in wider; a little wider still is wall.
-        assert not touches(body, probe(axis, d / 2 + LEAD_IN - 0.03, start, 0.01)), d
+        # Just inside the mouth the hole is a lead-in wider, less the 0.01 mm the probe runs
+        # in at 45°; a little wider still is wall.
+        assert not touches(body, probe(axis, d / 2 + LEAD_IN - 0.015, start, 0.01)), d
         assert touches(body, probe(axis, d / 2 + LEAD_IN + 0.03, start, 0.01)), d
 
 
@@ -152,7 +153,8 @@ def test_prints_without_supports():
 
 
 def test_strip_is_within_its_gram_budget():
-    # Ticket #20 hoped for about 1.5 g; 1.2 mm walls round nine 12 mm holes need nearly 2.
+    # Ticket #20 asked for about 1.5 g; 1.2 mm walls round nine 12 mm holes need nearly 2, and
+    # the user accepted 2.0 g in its place.
     assert model.GRAM_BUDGET == 2.0
     volume = sum(body.volume for body in bodies().values())
     assert volume / 1000 * PETG_DENSITY <= model.GRAM_BUDGET
@@ -162,7 +164,9 @@ def test_strip_is_within_its_gram_budget():
 def test_survives_plus_minus_ten_percent():
     # Perturbation audit over this part's own fields, and the collar's that its holes read.
     collar = {f.name for f in fields(CollarParams)}
-    audited = {f.name for f in fields(model.Params)} - collar | {"knuckle_wall", "pin_lead_in"}
+    audited = {f.name for f in fields(model.Params)} - collar | {
+        "knuckle_wall", "pin_lead_in", "pin_lead_in_angle", "pin_roof_angle"
+    }
     found = nudge.audit("clamp-pin-strip", (), ((),), only=audited)
     assert {f for f, _ in found} == audited & set(nudge.numeric_fields(model.Params))
     broken = {job: p for job, p in found.items() if p}
@@ -177,4 +181,6 @@ def test_every_part_reads_the_pins_provisional_sizes():
     assert p.pin_press_hole_horizontal == 1.85
     assert p.pin_clearance_hole == 2.15
     assert p.pin_lead_in == 0.3
+    assert p.pin_lead_in_angle == 45.0  # a 0.3 mm 45° lead-in
+    assert p.pin_roof_angle == 45.0  # the horizontal holes' 45° pointed roof
     assert p.knuckle_spacing == 0.2

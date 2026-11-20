@@ -288,7 +288,7 @@ def _find(body: Part, original: Edge) -> Edge | None:
 
 
 @lru_cache(maxsize=4)
-def _broken(params: Params) -> dict[str, Part]:
+def _edge_broken(params: Params) -> dict[str, Part]:
     """The bodies locked, Pins too, edges broken. Cached: breaking takes most of a build,
     and each pose of the same Params reuses it."""
     return break_edges(params, locked_bodies(params, params.stroke))
@@ -296,4 +296,4 @@ def _broken(params: Params) -> dict[str, Part]:
 
 def build(params: Params = Params(), pose: Pose | str = Pose.PRINT) -> dict[str, Part]:
     """The Clamp's named bodies in `pose` (see `Pose`)."""
-    return pose_bodies(params, params.stroke, _broken(params), pose)
+    return pose_bodies(params, params.stroke, _edge_broken(params), pose)

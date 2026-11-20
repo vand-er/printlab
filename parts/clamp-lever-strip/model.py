@@ -6,7 +6,7 @@ button); a Link from its crank Pin to a Pin on the Cart collar pulls the collar 
 the Stroke as the Lever goes over centre. The stop is the Lever lying flat on the Cradle.
 
 Every joint that turns is assembled on a Pin (ADR 0003): the collar hinges and the three
-toggle joints, each toggle Pin with a Pin cap on its outer end. The `print` pose (the
+linkage joints, each linkage Pin with a Pin cap on its outer end. The `print` pose (the
 default, and what is exported) lays the bodies apart on the bed without Pins: the Cradle
 upright, Battery axis vertical (Z), the Cart collar's body on its rib, the Doors beside
 their stubs, and the Lever, Link and caps flat behind. `closed` and `open` are the
@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from build123d import Part, Pos, Text, extrude
 
 from printlab import clamp as clamps
+from printlab.checks import FitPair
 from printlab.clamp import (  # noqa: F401  cap_radius and knuckle_radius, for the tests
     ClampParams,
     cap_radius,
@@ -85,9 +86,7 @@ def build(params: Params = Params(), pose: Pose | str = Pose.PRINT) -> dict[str,
     return bodies
 
 
-def fit_pairs(
-    p: Params, pose: Pose | str = Pose.CLOSED
-) -> tuple[tuple[str, str] | tuple[str, str, float | None], ...]:
+def fit_pairs(p: Params, pose: Pose | str) -> tuple[FitPair, ...]:
     """Each Clamp's fit pairs in `pose` (`printlab.clamp.fit_pairs`), for the nudge audit."""
     return tuple(
         (f"{a}-{s}", f"{b}-{s}", *rest)

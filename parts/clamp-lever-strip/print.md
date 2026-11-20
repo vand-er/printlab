@@ -24,7 +24,7 @@ Five per Clamp, fifteen in all, cut from the same 1.75 mm PETG, square and debur
 | Crank | 8.3 mm | Lever | Link |
 | Lower Link | 6.5 mm | Cart collar's ear | Link |
 
-Each toggle Pin gets one cap; the three caps are the same.
+Each linkage Pin gets one cap; the three caps are the same.
 
 ## Assemble each Clamp
 

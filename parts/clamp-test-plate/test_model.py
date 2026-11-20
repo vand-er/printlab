@@ -215,7 +215,7 @@ POSES = (("print", "bottom"), ("closed", "bottom"), ("open", "top"))  # as print
 
 
 def test_passes_the_audits_checks_unnudged():
-    pairs = model.fit_pairs(model.Params())
+    pairs = model.fit_pairs(model.Params(), "closed")
     # Each Pin turns in its Door at the Pin clearance, in both assembled poses.
     for name in [*DOORS, *(f"cart-door-{n}" for n in CART_NAMES)]:
         pin = name.replace("cart-door-", "pin-cart-").replace("door-", "pin-")
