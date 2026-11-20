@@ -73,3 +73,33 @@ _Avoid_: Test print, gauge
 **Lever strip**:
 The second print: three small clamps built at the chosen bores, one per stroke, so the stroke is chosen on the real cart and battery.
 _Avoid_: Stroke test
+
+### Checking and printing
+
+**Blocker**:
+A check result that fails the build, such as a wall under the minimum or an overhang the part did not declare.
+_Avoid_: Fault
+
+**Warning**:
+A check result reported but not failing the build.
+_Avoid_: Notice
+
+**Inspection sheet**:
+The set of rendered views of a part, from every side, that the user and agent look at before printing.
+_Avoid_: Preview, render
+
+**Fit record**:
+The one list of clearances every part uses, each value on the diameter and marked as a default or as proven by a named print.
+_Avoid_: Clearance table, tolerances
+
+**Proven value**:
+A fit-record value confirmed by a named test print; any other value is a default.
+_Avoid_: Calibrated
+
+**Sliced file**:
+A part sliced by printlab with Bambu's own printer settings and the user's filament preset, ready for the user to send to the printer.
+_Avoid_: G-code, project file, 3MF
+
+**Slice check**:
+A slice made only to learn a part's grams, time and where supports land; the sliced output is discarded.
+_Avoid_: Test slice, dry run
