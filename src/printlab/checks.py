@@ -14,6 +14,10 @@ FIT_TOLERANCE = 1e-4
 # How far past its clearance a fit may be loose, in mm, before it rattles.
 RATTLE_DELTA = 0.05
 
+# Two bodies that move against each other, by name: fitted at the part's gap, or at their own
+# clearance as a third element, where None checks only that they don't overlap.
+FitPair = tuple[str, str] | tuple[str, str, float | None]
+
 
 @dataclass
 class Report:

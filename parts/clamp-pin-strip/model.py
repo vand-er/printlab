@@ -16,11 +16,11 @@ from dataclasses import dataclass
 from build123d import Align, Cylinder, Part, Plane, Polygon, Pos, extrude
 
 from printlab.collar import box
-from printlab.pinhole import ROOF, lead_in, teardrop
+from printlab.pinhole import THROUGH, lead_in, teardrop
 from printlab.strip import LabelParams, label_at, label_pocket
 
-# g; the CLI warns above this. Ticket #20 hoped for about 1.5 g, but nine holes 12 mm deep in
-# 1.2 mm walls come to nearly 2 g.
+# g; the CLI warns above this. Ticket #20 asked for about 1.5 g, but nine holes 12 mm deep in
+# 1.2 mm walls come to nearly 2 g, and the user accepted 2.0 g in its place.
 GRAM_BUDGET = 2.0
 SEPARATE_STL = {"labels": "label-"}  # the labels print in white PLA, from their own STL
 
@@ -78,8 +78,8 @@ def _vertical(p: Params, size: float, x: float, y: float) -> Part:
     h = p.knuckle_stack
     up = (Align.CENTER, Align.CENTER, Align.MIN)
     tube = Cylinder(_outer_radius(p, size), h, align=up)
-    tube -= Pos(0, 0, -1) * Cylinder(size / 2, h + 2, align=up)
-    tube -= Plane.XY.offset(h).rotated((180, 0, 0)) * lead_in(size / 2, p.pin_lead_in, False)
+    tube -= Pos(0, 0, -THROUGH) * Cylinder(size / 2, h + 2 * THROUGH, align=up)
+    tube -= Plane.XY.offset(h).rotated((180, 0, 0)) * lead_in(p, size / 2)
     return Pos(x, y, 0) * tube
 
 
@@ -89,7 +89,7 @@ def _horizontal(p: Params, size: float, x: float, y: float) -> Part:
     width = size + 2 * w
     centre_z = w + r
     # Outside: square sides, then the hole's roof a wall out, so the wall holds all round.
-    a = math.radians(ROOF)
+    a = math.radians(p.pin_roof_angle)
     ridge = centre_z + (r + w) / math.cos(a)
     eave = ridge - width / 2 / math.tan(a)
     xz = Plane.XZ  # local x = X, local y = Z, normal -Y
@@ -97,10 +97,10 @@ def _horizontal(p: Params, size: float, x: float, y: float) -> Part:
                       (-width / 2, eave), align=None)
     bar = extrude(xz * outline, -length)  # along +Y from y = 0
     # x_dir -X, so the teardrop's +Y (its roof) lands on +Z.
-    hole_plane = Plane(origin=(0, -1, centre_z), x_dir=(-1, 0, 0), z_dir=(0, 1, 0))
-    bar -= extrude(hole_plane * teardrop(r), length + 2)
+    hole_plane = Plane(origin=(0, -THROUGH, centre_z), x_dir=(-1, 0, 0), z_dir=(0, 1, 0))
+    bar -= extrude(hole_plane * teardrop(p, r), length + 2 * THROUGH)
     mouth = Plane(origin=(0, length, centre_z), x_dir=(1, 0, 0), z_dir=(0, -1, 0))
-    bar -= mouth * lead_in(r, p.pin_lead_in, True)
+    bar -= mouth * lead_in(p, r, roofed=True)
     return Pos(x, y, 0) * bar
 
 

@@ -12,10 +12,11 @@ import math
 from dataclasses import dataclass
 from enum import StrEnum
 
-from build123d import Align, Axis, Box, Cone, Cylinder, Part, Plane, Polygon, Pos, RegularPolygon, extrude
+from build123d import Align, Axis, Box, Cylinder, Part, Plane, Polygon, Pos, RegularPolygon, extrude
+
+from printlab.pinhole import FUSE, lead_in
 
 # Pure modelling tolerances, not part sizes.
-FUSE = 0.01  # mm two solids overlap so they fuse into one
 EMBED = 0.5  # mm a joining feature runs into the body it joins
 SPIKE_TIP = 0.05  # mm, flat top of a knuckle spike, inside the pin, so it never ends in a point
 LIP_MIN_STEP = 0.02  # mm, on the diameter: a lip any narrower than this is left out
@@ -58,7 +59,9 @@ class CollarParams:
     pin_press_hole_vertical: float = 1.85  # mm, press fit in a hole printed vertical
     pin_press_hole_horizontal: float = 1.85  # mm, press fit in a hole printed along the bed
     pin_clearance_hole: float = 2.15  # mm, the Pin turns freely
-    pin_lead_in: float = 0.3  # mm, 45° chamfer at each Pin hole's mouth
+    pin_lead_in: float = 0.3  # mm each Pin hole's mouth is widened, a side
+    pin_lead_in_angle: float = 45.0  # degrees from the hole's axis: each lead-in's chamfer
+    pin_roof_angle: float = 45.0  # degrees from vertical: the pointed roof of a hole along the bed
     knuckle_spacing: float = 0.2  # mm between stacked knuckles along a Pin
     # Latch: horizontal hook arm on the Door, keeper on the stub
     latch_height: float = 4.5  # mm, arm height from the bed
@@ -125,20 +128,12 @@ def _below_spike(p, apex: float) -> Part:
     return Pos(0, 0, bottom) * extrude(base, rise, taper=p.knuckle_cone)
 
 
-def _lead_in(p, r: float, z_mouth: float, r_out: float, drop: float = 0.0, up: bool = True) -> Part:
-    """A 45° countersink on the hinge axis widening a hole of radius r by `pin_lead_in`.
-
-    The mouth is where the hole meets the knuckle's end at z_mouth: a flat end, or one
-    falling `drop` mm per mm outward (a spike top). The cone runs out to radius r_out,
-    the knuckle's rim, so it cuts nothing beyond the knuckle.
-    """
-    lead = p.pin_lead_in
-    rise = r_out - r  # 45°: the cone rises as far as it widens
-    up_align = (Align.CENTER, Align.CENTER, Align.MIN)
-    if up:  # meets the end face at r + lead
-        z0 = z_mouth - lead * (1 + drop)
-        return Pos(0, 0, z0) * Cone(r, r_out, rise, align=up_align)
-    return Pos(0, 0, z_mouth + lead - rise) * Cone(r_out, r, rise, align=up_align)
+def _mouth(p, r: float, z_mouth: float, drop: float = 0.0, up: bool = True) -> Part:
+    """The lead-in of a hole of radius r on the hinge axis, at its mouth on a knuckle's end at
+    z_mouth: a top face if `up`, else an underside. The end is flat, or falls `drop` mm per
+    mm outward (a spike top)."""
+    plane = Plane.XY.offset(z_mouth)
+    return (plane.rotated((180, 0, 0)) if up else plane) * lead_in(p, r, drop=drop)
 
 
 def _hinge_zones(p, height: float, axis_x: float) -> dict[str, Part]:
@@ -193,11 +188,11 @@ def _hinge_zones(p, height: float, axis_x: float) -> dict[str, Part]:
         drop = 1 / slope
         stub_hole = (
             _column(r_stub, -1, height + 1)
-            + _lead_in(p, r_stub, 0, r_k, up=False)
-            + _lead_in(p, r_stub, height, r_k)
-            + _lead_in(p, r_stub, a1 - d - r_stub * drop, r_k, drop)
+            + _mouth(p, r_stub, 0, up=False)
+            + _mouth(p, r_stub, height)
+            + _mouth(p, r_stub, a1 - d - r_stub * drop, drop)
         )
-        door_hole = _lead_in(p, r_door, a2 - d - r_door * drop, r_k, drop)
+        door_hole = _mouth(p, r_door, a2 - d - r_door * drop, drop)
         zones["stub_hole"] = place * stub_hole
         zones["door_hole"] = place * door_hole
     return zones
@@ -338,6 +333,12 @@ def pose_door(p, part: Part, bore_d: float, pose: Pose | str) -> Part:
         return part
     axis = Axis((hinge_axis_x(p, bore_d), 0, 0), (0, 0, 1))
     return part.rotate(axis, p.open_angle)
+
+
+def door_print_offset(p, closed: Part, gap: float) -> Pos:
+    """Where a `print` pose lays a closed Door: moved off the split, `gap` clear of its stub's
+    knuckles."""
+    return Pos(0, knuckle_radius(p) + gap - closed.bounding_box().min.Y, 0)
 
 
 # --- Cart collar: a sliding body on a T-headed rib, and a Door ---

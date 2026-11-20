@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 from build123d import Part, Pos, Rot, Text, extrude
 
+from printlab.checks import FitPair
 from printlab.collar import (
     CollarParams,
     Hinge,
@@ -40,8 +41,9 @@ from printlab.collar import (
     cart_rib,
     cradle_stub,
     door,
+    door_print_offset,
     hinge_axis_x,
-    knuckle_radius,
+    knuckle_radius,  # noqa: F401  for the tests
     latch_arm,
     outer_radius,
     pin,
@@ -72,8 +74,9 @@ def label_name(nominal: float) -> str:
     return f"{nominal:.1f}".replace(".", "-")
 
 
-def fit_pairs(p: Params) -> tuple[tuple[str, str] | tuple[str, str, float | None], ...]:
-    """The bodies that move against each other, for the nudge audit. Each Pin turns in its
+def fit_pairs(p: Params, pose: Pose | str) -> tuple[FitPair, ...]:
+    """The bodies that move against each other, the same in every `pose` (a `print` pose has
+    no Pins, so their pairs are skipped there), for the nudge audit. Each Pin turns in its
     Door at the Pin clearance; it is a press fit in its stub, and the Pin, not a gap, locates
     the Door on the stub, so those only mustn't overlap (None). Each Cart collar body slides
     on the plate at the gap. Names follow the bores, so a nudge renames them."""
@@ -143,9 +146,8 @@ def _plate(p: Params) -> Part:
 
 
 def _print_offset(p: Params, closed: Part) -> Pos:
-    """Where the `print` pose lays a Door: moved off the split, `print_gap` clear of its
-    stub's knuckles."""
-    return Pos(0, knuckle_radius(p) + p.print_gap - closed.bounding_box().min.Y, 0)
+    """Where the `print` pose lays a Door: `print_gap` clear of its stub's knuckles."""
+    return door_print_offset(p, closed, p.print_gap)
 
 
 def _posed(p: Params, closed: Part, bore_d: float, pose: Pose | str) -> Part:
