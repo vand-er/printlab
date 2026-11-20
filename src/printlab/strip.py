@@ -1,6 +1,6 @@
 """Sample strips: Battery collar samples in a row on a PETG strip, each labelled in white PLA.
 
-Used by the gap strip. Each sample is a Cradle stub on the strip with
+Used by the gap strip; the Pin strip uses its labels. Each sample is a Cradle stub on the strip with
 a print-in-place Door; `samples` are the per-sample Params, left to right. The labels are buried
 in the strip's bottom, a `label_clearance` clear so the slicer splits them off.
 """
@@ -13,10 +13,9 @@ from printlab.collar import CollarParams, bore, bore_cut, box, cradle_stub, door
 
 
 @dataclass(frozen=True)
-class StripParams(CollarParams):
-    nominal_bore: float = 8.0  # mm; small, since only the hinge and Latch are under test
-    collar_height: float = 5.0  # mm; just above the 4.5 mm Latch, three knuckles still print
-    pitch: float = 24.0  # mm between sample centres; a Latch clears the next hinge
+class LabelParams(CollarParams):
+    """The sizes of white PLA labels buried in a PETG strip's bottom."""
+
     plate_width: float = 4.5  # mm, strip joining the stubs; carries the labels
     plate_height: float = 1.0  # mm; carries no load
     label_size: float = 3.5  # mm font size of the labels
@@ -24,6 +23,13 @@ class StripParams(CollarParams):
     underline: float = 0.5  # mm wide bar joining a label's glyphs into one body
     underline_overlap: float = 0.3  # mm the bar runs up into the glyphs
     label_clearance: float = 0.02  # mm around each label; under a line width, so it doesn't print
+
+
+@dataclass(frozen=True)
+class StripParams(LabelParams):
+    nominal_bore: float = 8.0  # mm; small, since only the hinge and Latch are under test
+    collar_height: float = 5.0  # mm; just above the 4.5 mm Latch, three knuckles still print
+    pitch: float = 24.0  # mm between sample centres; a Latch clears the next hinge
 
 
 def sample_x(p: StripParams, i: int, count: int) -> float:
@@ -37,9 +43,13 @@ def _strip_y(p: StripParams) -> tuple[float, float]:
     return front - p.plate_width, front
 
 
-def _outline(p: StripParams, text: str, x: float) -> Sketch:
-    """The text, underlined, behind the ring; the underline joins the glyphs into one piece."""
-    y = -(outer_radius(p, bore(p, p.nominal_bore)) + p.label_size / 2)
+def _label_y(p: StripParams) -> float:
+    """y of a sample's label: behind the ring."""
+    return -(outer_radius(p, bore(p, p.nominal_bore)) + p.label_size / 2)
+
+
+def _outline(p: LabelParams, text: str, x: float, y: float) -> Sketch:
+    """The text, underlined, centred on (x, y); the underline joins the glyphs into one piece."""
     glyphs = Text(text, p.label_size)
     g = glyphs.bounding_box()
     top = g.min.Y + p.underline_overlap
@@ -47,16 +57,21 @@ def _outline(p: StripParams, text: str, x: float) -> Sketch:
     return Pos(x, y) * (glyphs + bar)
 
 
+def label_at(p: LabelParams, text: str, x: float, y: float) -> Part:
+    """White PLA on the bed at (x, y), read through the PETG above it."""
+    return extrude(_outline(p, text, x, y), p.label_depth)
+
+
 def label(p: StripParams, text: str, x: float) -> Part:
-    """White PLA on the bed, read through the PETG above it."""
-    return extrude(_outline(p, text, x), p.label_depth)
+    """A sample's label, behind its ring."""
+    return label_at(p, text, x, _label_y(p))
 
 
-def _label_pocket(p: StripParams, text: str, x: float) -> Part:
+def label_pocket(p: LabelParams, text: str, x: float, y: float) -> Part:
     """The label's room in the strip, about a clearance wider and taller, so the slicer splits it
     off. The label shifted each way, since a 2D offset fails on the font's curves."""
     c = p.label_clearance
-    tall = extrude(_outline(p, text, x), p.label_depth + c)
+    tall = extrude(_outline(p, text, x, y), p.label_depth + c)
     pocket = tall
     for dx, dy in ((c, 0), (-c, 0), (0, c), (0, -c), (c, c), (c, -c), (-c, c), (-c, -c)):
         pocket = pocket + Pos(dx, dy, 0) * tall
@@ -80,6 +95,6 @@ def strip(p: StripParams, samples: list[CollarParams], texts: list[str]) -> Part
             x + r_o, x + reach.max.X + s.gap, reach.min.Y - s.gap, front + 1, p.plate_height + 1, -1
         )
         body = body + Pos(x, 0, 0) * cradle_stub(s, bore_d, p.collar_height)
-        body = body - _label_pocket(p, text, x)
+        body = body - label_pocket(p, text, x, _label_y(p))
         body = body - Pos(x, 0, 0) * bore_cut(bore_d, p.collar_height)
     return body
