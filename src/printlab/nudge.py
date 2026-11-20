@@ -37,14 +37,23 @@ def numeric_fields(params_type) -> list[str]:
 
 
 def fit_problems(
-    bodies: dict, pairs: tuple[tuple[str, str] | tuple[str, str, float], ...], gap: float, pose: str
+    bodies: dict, pairs: tuple[tuple[str, str] | tuple[str, str, float | None], ...], gap: float,
+    pose: str,
 ) -> list[str]:
-    """`check_fit` on each pair whose bodies are both in this pose; a `print` pose has no Pins."""
+    """`check_fit` on each pair whose bodies are both in this pose; a `print` pose has no Pins.
+
+    A pair may name its clearance, else it is the gap; None checks only that they don't overlap.
+    """
     found = []
-    for a, b, *clearance in pairs:  # a pair may name its clearance; else the gap
+    for a, b, *clearance in pairs:
         if a in bodies and b in bodies:
-            report = check_fit(bodies[a], bodies[b], clearance[0] if clearance else gap)
-            found += [f"{pose} {a}/{b}: {q}" for q in report.problems]
+            c = clearance[0] if clearance else gap
+            if c is None:
+                overlap = sum(s.volume for s in (bodies[a] & bodies[b]).solids())
+                problems = [f"parts overlap by {overlap:.3f} mm³"] if overlap > 0 else []
+            else:
+                problems = check_fit(bodies[a], bodies[b], c).problems
+            found += [f"{pose} {a}/{b}: {q}" for q in problems]
     return found
 
 

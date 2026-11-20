@@ -97,6 +97,13 @@ def test_prints_without_supports():
             assert normal.Z >= limit, (name, face.center(), normal)
 
 
+@pytest.mark.parametrize("pose", ["closed", "open"])
+def test_keeps_its_print_in_place_hinge_as_printed(pose):
+    # Ticket #21: the Test plate's move to Pins leaves this record of the #16 print unchanged.
+    volume = sum(body.volume for body in model.build(pose=pose).values())
+    assert volume == pytest.approx(2191.6666, abs=1e-3)
+
+
 def test_strip_is_within_its_gram_budget():
     assert model.GRAM_BUDGET == 3.0  # ticket #16: warn above 3 g
     volume = sum(body.volume for body in model.build().values())
