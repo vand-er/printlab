@@ -97,8 +97,9 @@ def diameters_along(body, axis):
     }
 
 
-PRESS = 1.85  # mm, the Pin strip's provisional press fit, vertical and horizontal alike
-CLEARANCE = 2.15  # mm, its provisional clearance
+# Ticket #20: the Pin strip's provisional middle sizes, until it is printed and judged.
+PRESS = 1.85  # mm press fit, vertical and horizontal alike
+CLEARANCE = 2.15  # mm clearance
 
 
 def test_each_pin_hole_keeps_its_size_after_the_edge_breaks(printed):
@@ -179,8 +180,8 @@ def test_assembled_has_every_pin_and_cap(pose, closed, opened):
     assert set(bodies) == {*BODIES, *PINS}
 
 
-PIN_CLEARANCE = 0.2  # mm a side: a 1.75 mm Pin in the 2.15 mm clearance hole
-TURNS_IN = {  # spec #18: each Pin turns in one part and presses into another
+PIN_CLEARANCE = 0.2  # mm a side, ticket #20: a 1.75 mm Pin in the 2.15 mm clearance hole
+TURNS_IN = {  # spec #18, "Which part a Pin presses into": (turns in, presses into)
     "pin-battery": ("battery-door", "cradle"),
     "pin-cart": ("cart-door", "cart-body"),
     "pin-pivot": ("lever", "cradle"),
@@ -198,14 +199,26 @@ def test_each_pin_turns_in_one_part_and_presses_into_the_other(pose, closed, ope
         assert not (bodies[pin] & bodies[holds]).solids(), (pose, pin)
 
 
+def collides(bodies, moving, dx, without=()):
+    """Whether `moving`, moved dx mm along X, runs into another body not named in `without`."""
+    shifted = Pos(dx, 0, 0) * bodies[moving]
+    return any((shifted & b).solids() for n, b in bodies.items() if n != moving and n not in without)
+
+
+# Spec #18 puts a cap on each linkage Pin's outer end, +X here, so the caps hold the Lever and
+# the Link that way; the other way the lug holds the Lever and the ear the Link.
+CAP_HELD = (("lever", 1), ("link", 1))
+
+
 @pytest.mark.parametrize("pose", ["closed", "open"])
 def test_caps_keep_the_lever_and_the_link_from_sliding_along_x(pose, closed, opened):
     bodies = {"closed": closed, "open": opened}[pose]
     for moving in ("lever", "link"):
-        others = [b for n, b in bodies.items() if n != moving]
         for dx in (-1, 1):
-            shifted = Pos(dx, 0, 0) * bodies[moving]
-            assert any((shifted & o).solids() for o in others), (pose, moving, dx)
+            assert collides(bodies, moving, dx), (pose, moving, dx)
+    # The caps do that holding: with them off, the same move runs free.
+    for moving, dx in CAP_HELD:
+        assert not collides(bodies, moving, dx, without=CAPS), (pose, moving, dx)
 
 
 def test_starts_at_the_middle_sizes(printed):
@@ -237,12 +250,34 @@ def test_cart_and_battery_bores_are_coaxial(closed):
     assert battery | cart == {(0.0, 0.0, 1.0)}
 
 
+def fits(params):
+    """The Clamp's pairs that meet, as fit pairs: at the gap unless a clearance is given; None
+    only mustn't overlap."""
+    return (
+        # Spec #18: each Pin turns in one part at the Pin clearance, presses into the other,
+        # and carries a cap pressed on its outer end (Pin caps).
+        *((pin, turns, PIN_CLEARANCE) for pin, (turns, _) in TURNS_IN.items()),
+        *((holds, pin, None) for pin, (_, holds) in TURNS_IN.items()),
+        *((cap, cap.replace("cap-", "pin-"), None) for cap in CAPS),
+        # A gap apart: the Cart collar slides on its rib, the Lever rests on its stop, the
+        # Link swings past the ear, and each cap holds its part on its Pin.
+        ("cradle", "cart-body"), ("cradle", "lever"), ("cart-body", "link"),
+        ("cap-pivot", "lever"), ("cap-crank", "link"), ("cap-link", "link"),
+        # The pivot cap clears the crank Pin orbiting it (a Params choice, no spec number).
+        ("cap-pivot", "pin-crank", params.cap_clearance),
+        # The Pin, not a gap, locates each Door on its stub; the Lever and the Link lie a
+        # cap's layer apart, and the Link swings over the pivot cap.
+        ("cradle", "battery-door", None), ("cart-body", "cart-door", None),
+        ("lever", "link", None), ("cap-pivot", "link", None),
+    )
+
+
 @pytest.mark.parametrize("pose", ["closed", "open"])
 def test_every_pair_fits_in_both_poses(pose, closed, opened):
-    """Moving pairs at their clearance (the model's fit pairs); every other pair must not overlap."""
+    """Each pair that meets fits; every other pair must not overlap."""
     bodies = {"closed": closed, "open": opened}[pose]
     params = model.Params()
-    pairs = model.fit_pairs(params, pose)
+    pairs = fits(params)
     assert nudge.fit_problems(bodies, pairs, params.gap, pose) == []
     paired = {frozenset(pair[:2]) for pair in pairs}
     for a, b in combinations(bodies, 2):
@@ -275,13 +310,24 @@ def test_cart_collar_drops_by_the_stroke_and_dips_at_centre_within_its_cap(close
         assert not (centre[a] & centre[b]).solids(), (a, b, "centre")
 
 
-# Measured on the Clamp before ticket #23 (printed pins), as on the Lever strip.
+# The record that the linkage is unchanged (spec #18): the pin centres measured on the Clamp
+# before ticket #23 (printed pins), as on the Lever strip.
 PIVOT = (-16.9, 8.6018)  # (y, z) mm
 CRANK = (-18.9822, 6.4421)
 LINK_PIN = (-9.025, 14.8)
-# Degrees between pivot-crank and pivot-Link-pin, from those centres: the crank's 8° past
-# dead centre (`past_centre`) as the pin centres show it.
-PAST_CENTRE = 7.842
+PAST_CENTRE = 8.0  # degrees, spec #10: the Lever locks about 8° past centre
+
+
+def past_dead_centre(params, pivot, crank, link_pin):
+    """Degrees the crank stands past dead centre, from the Pin centres. At dead centre the
+    pivot lies on the Link, so the Link pin, on its slide along Z, stands `link_length` less
+    `crank_radius` off the pivot, and the crank points straight away from it."""
+    reach = params.link_length - params.crank_radius
+    dy = link_pin[0] - pivot[0]
+    centre_pin = (link_pin[0], pivot[1] + math.sqrt(reach**2 - dy**2))
+    away = math.atan2(pivot[1] - centre_pin[1], pivot[0] - centre_pin[0])
+    locked = math.atan2(crank[1] - pivot[1], crank[0] - pivot[0])
+    return abs(math.degrees(locked - away))
 
 
 def axis_yz(pin):
@@ -294,10 +340,8 @@ def test_locked_lever_is_past_centre_where_it_was_and_lies_flat_on_its_stop(clos
     pivot, crank, link_pin = (axis_yz(closed[p]) for p in ("pin-pivot", "pin-crank", "pin-link"))
     for got, before in zip((pivot, crank, link_pin), (PIVOT, CRANK, LINK_PIN)):
         assert got == pytest.approx(before, abs=1e-3)
-    u = (pivot[0] - crank[0], pivot[1] - crank[1])
-    v = (link_pin[0] - pivot[0], link_pin[1] - pivot[1])
-    past = math.degrees(math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1]))
-    assert abs(past) == pytest.approx(PAST_CENTRE, abs=1e-3)
+    assert params.past_centre == PAST_CENTRE
+    assert past_dead_centre(params, pivot, crank, link_pin) == pytest.approx(PAST_CENTRE, abs=1e-3)
     assert check_fit(closed["cradle"], closed["lever"], params.gap).ok
     # The Link's pull turns the Lever further; 3° that way it runs into the Cradle: its stop.
     torque = (crank[0] - pivot[0]) * (link_pin[1] - pivot[1]) - (crank[1] - pivot[1]) * (
