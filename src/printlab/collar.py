@@ -53,6 +53,14 @@ class CollarParams:
     knuckle_wall: float = 1.2  # mm, ring around each pin (load-bearing)
     knuckle_cone: float = 45.0  # degrees from vertical; spiked knuckle ends print unsupported
     knuckle_facets: int = 16  # facets around each knuckle spike
+    # Pin: a PETG filament offcut pushed through a joint (ADR 0003). The holes are the Pin
+    # strip's provisional middle sizes until it is printed and judged.
+    pin_stock_diameter: float = 1.75  # mm, the filament the Pin is cut from
+    pin_press_hole_vertical: float = 1.85  # mm, press fit in a hole printed vertical
+    pin_press_hole_horizontal: float = 1.85  # mm, press fit in a hole printed along the bed
+    pin_clearance_hole: float = 2.15  # mm, the Pin turns freely
+    pin_lead_in: float = 0.3  # mm, 45° chamfer at each Pin hole's mouth
+    knuckle_spacing: float = 0.2  # mm between stacked knuckles along a Pin
     # Set, the stub's pin becomes a captured PLA body with flat washers, and `gap` holds PETG only.
     pla_pin: PlaPin | None = None
     # Latch: horizontal hook arm on the Door, keeper on the stub
