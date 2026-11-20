@@ -1,0 +1,18 @@
+{
+    "type": "process",
+    "name": "PLA fast tub",
+    "inherits": "0.28mm Extra Draft @BBL X1C",
+    "from": "User",
+    "print_settings_id": "PLA fast tub",
+    "version": "2.9.0.81",
+    "bottom_shell_layers": "4",
+    "seam_position": "back",
+    "print_extruder_id": [
+        "1",
+        "1"
+    ],
+    "print_extruder_variant": [
+        "Direct Drive Standard",
+        "Direct Drive High Flow"
+    ]
+}

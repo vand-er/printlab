@@ -4,7 +4,8 @@ Parametric, agent-designed functional parts for a Bambu Lab X1C. Vocabulary is i
 
 ## Hard rules
 
-- **Never write G-code or slicer project files.** Slicer presets only on the user's word, kept outside the repo; write them as files into Bambu Studio's user folder, as `G:\ai general\everclear\make_label_presets.py` does. Agents produce CAD only: STEP, STL and a PNG preview. The user slices by hand in Bambu Studio.
+- **Never write G-code, slicer project files, or printer or filament presets by hand.** Agents produce CAD (STEP, STL, a PNG preview) and may write process presets in `presets/`, which the user imports (ADR 0002). A sliced file comes only from printlab's own slicing step, on request (ADR 0004). Sending anything to the printer is always the user's.
+- **Every part has `parts/<name>/print.md`:** the preset to import, filament, plate, orientation, print-dialog options, expected grams and time. Whenever a part is ready to print, repeat it in chat.
 - **Every dimension is a named parameter** in the part's `Params` dataclass. `tests/test_standards.py` enforces it.
 - **Test first.** Write the part's `test_model.py` assertions (hole sizes, fit, solid count) before the geometry.
 - A part is done when `uv run pytest` and `uv run pytest -m slow -n 0` pass, `uv run printlab build <part>` succeeds, and the user has looked at `out/<part>.png`.
@@ -15,6 +16,8 @@ Parametric, agent-designed functional parts for a Bambu Lab X1C. Vocabulary is i
 parts/<name>/model.py       Params dataclass + build(params, pose) -> Part or dict[str, Part]
 parts/<name>/test_model.py  assertions for this part (TDD)
 parts/<name>/out/           exported STEP, STL, PNG; committed
+parts/<name>/print.md       how to print it
+presets/<name>.json          Bambu Studio process presets (ADR 0002)
 src/printlab/checks.py        check_part(): one valid solid that fits the X1C; check_fit(); hole_diameters()
 src/printlab/export.py        export_part(): one Part or {name: Part} -> STEP, STL, GLB, coloured preview, grams
 src/printlab/collar.py        CollarParams, Pose; hinge, Latch, Battery and Cart collar builders
