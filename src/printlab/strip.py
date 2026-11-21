@@ -7,8 +7,9 @@ in the strip's bottom, a `label_clearance` clear so the slicer splits them off.
 
 from dataclasses import dataclass
 
-from build123d import Part, Pos, Rectangle, Sketch, Text, extrude
+from build123d import Part, Pos, Rectangle, Sketch, extrude
 
+from printlab import font
 from printlab.collar import CollarParams, bore, bore_cut, box, cradle_stub, door, hinge_axis_x, outer_radius
 
 
@@ -50,7 +51,7 @@ def _label_y(p: StripParams) -> float:
 
 def _outline(p: LabelParams, text: str, x: float, y: float) -> Sketch:
     """The text, underlined, centred on (x, y); the underline joins the glyphs into one piece."""
-    glyphs = Text(text, p.label_size)
+    glyphs = font.text(text, p.label_size)
     g = glyphs.bounding_box()
     top = g.min.Y + p.underline_overlap
     bar = Pos((g.min.X + g.max.X) / 2, top - p.underline / 2) * Rectangle(g.size.X, p.underline)

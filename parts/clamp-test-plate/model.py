@@ -23,8 +23,9 @@ The hinge, Latch and collar builders and their sizes (`CollarParams`) live in
 
 from dataclasses import dataclass
 
-from build123d import Part, Pos, Rot, Text, extrude
+from build123d import Part, Pos, Rot, extrude
 
+from printlab import font
 from printlab.checks import FitPair
 from printlab.collar import (
     CollarParams,
@@ -118,7 +119,7 @@ def _cart_place(p: Params, i: int):
 
 def _label(p: Params, nominal: float, x: float) -> Part:
     back, front = _plate_y(p)
-    text = Text(f"{nominal:.1f}", p.label_size)
+    text = font.text(f"{nominal:.1f}", p.label_size)
     return Pos(x, (back + front) / 2, p.plate_height) * extrude(text, p.label_relief)
 
 
