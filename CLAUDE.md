@@ -57,3 +57,17 @@ Add a helper to `src/printlab/` only once a second part needs it.
 - Read `docs/research/build123d-pitfalls.md` before chamfers, cones or fit checks.
 - Before writing geometry, read the MCP resources `build123d://quickref` and `build123d://selectors`; when a solid fails, read `build123d://skill/repair`. Look anything else up in https://build123d.readthedocs.io/en/stable/llms.txt.
 - To measure or debug a shape, prefer the build123d MCP tools (`show(part, "name")`, then `measure`, `compare`, `render_view`) over one-off scripts. Its tip-over check gives false positives on clamps.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `vand-er/printlab`, via `gh`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the root. See `docs/agents/domain.md`.
