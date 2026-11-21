@@ -37,7 +37,7 @@ Add a helper to `src/printlab/` only once a second part needs it.
 ## Commands
 
 - `uv run pytest`: fast tests, in parallel; add `-n 0` for a single test
-- `uv run pytest -m slow -n 0`: the ±10 % nudge audits, ~45 min. CI runs them; locally, run only the changed part's fast tests.
+- `uv run pytest -m slow -n 0`: the ±10 % nudge audits, ~45 min. CI runs them on the user's PC (a self-hosted runner); locally, run only the changed part's fast tests.
 - `uv run ruff check .`: lint
 - `uv run printlab build <part>`: check and export
 - `uv run printlab list`: list parts

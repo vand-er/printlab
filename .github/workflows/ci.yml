@@ -1,12 +1,19 @@
 name: ci
 
+# Runs on the user's own PC (a self-hosted runner): free for a private repo, and its 8 cores
+# finish the slow audits, which ran past GitHub's 6-hour limit on its 2-core runners.
+# Push only: a PR shows its head's push run, so a pull_request trigger would run it twice.
 on:
   push:
-  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
