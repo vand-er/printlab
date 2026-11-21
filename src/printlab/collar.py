@@ -53,12 +53,12 @@ class CollarParams:
     knuckle_wall: float = 1.2  # mm, ring around each pin (load-bearing)
     knuckle_cone: float = 45.0  # degrees from vertical; spiked knuckle ends print unsupported
     knuckle_facets: int = 16  # facets around each knuckle spike
-    # Pin: a PETG filament offcut pushed through a joint (ADR 0003). The holes are the Pin
-    # strip's provisional middle sizes until it is printed and judged.
+    # Pin: a PETG filament offcut pushed through a joint (ADR 0003). The holes are the user's
+    # picks from the printed Pin strip.
     pin_stock_diameter: float = 1.75  # mm, the filament the Pin is cut from
-    pin_press_hole_vertical: float = 1.85  # mm, press fit in a hole printed vertical
+    pin_press_hole_vertical: float = 2.0  # mm, press fit in a hole printed vertical
     pin_press_hole_horizontal: float = 1.85  # mm, press fit in a hole printed along the bed
-    pin_clearance_hole: float = 2.15  # mm, the Pin turns freely
+    pin_clearance_hole: float = 2.05  # mm, the Pin turns freely
     pin_lead_in: float = 0.3  # mm each Pin hole's mouth is widened, a side
     pin_lead_in_angle: float = 45.0  # degrees from the hole's axis: each lead-in's chamfer
     pin_roof_angle: float = 45.0  # degrees from vertical: the pointed roof of a hole along the bed

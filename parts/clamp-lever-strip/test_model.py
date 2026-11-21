@@ -184,7 +184,7 @@ def test_assembled_has_every_pin_and_cap(pose, closed, opened):
     assert set(bodies) == {f"{b}-{s}" for b in (*PRINTED, *PINS) for s in STROKES}
 
 
-PIN_CLEARANCE = 0.2  # mm a side, ticket #20: a 1.75 mm Pin in the 2.15 mm clearance hole
+PIN_CLEARANCE = 0.15  # mm a side: a 1.75 mm Pin in the 2.05 mm clearance hole
 TURNS_IN = {  # spec #18, "Which part a Pin presses into": (turns in, presses into)
     "pin-battery": ("battery-door", "cradle"),
     "pin-cart": ("cart-door", "cart-body"),
@@ -432,10 +432,10 @@ def test_no_load_bearing_wall_is_under_the_minimum(printed):
     assert params.cradle_back_depth >= MIN_WALL
     assert params.lug_width >= MIN_WALL
     for hole in (params.pin_press_hole_vertical, params.pin_clearance_hole):
-        assert model.knuckle_radius(params) - hole / 2 >= MIN_WALL
+        assert model.knuckle_radius(params) - hole / 2 >= MIN_WALL - 1e-9
     # A cap only keeps a part on its Pin and carries no load. It is as wide as the pivot
-    # cap can be and clear the crank Pin orbiting it: a 1.0 mm wall at the defaults.
-    assert model.cap_radius(params) - params.pin_press_hole_vertical / 2 == pytest.approx(1.0)
+    # cap can be and clear the crank Pin orbiting it: a 0.925 mm wall at the defaults.
+    assert model.cap_radius(params) - params.pin_press_hole_vertical / 2 == pytest.approx(0.925)
 
 
 # --- Nudge audit ---

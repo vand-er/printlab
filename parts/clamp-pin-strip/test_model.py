@@ -173,13 +173,13 @@ def test_survives_plus_minus_ten_percent():
     assert not broken, broken
 
 
-def test_every_part_reads_the_pins_provisional_sizes():
-    # Ticket #20: the middle sizes, until the Pin strip is printed and judged.
+def test_every_part_reads_the_pin_sizes_picked_from_this_strip():
+    # The user's picks: 1.95 jammed partway and 2.05 was loose, so vertical press is between.
     p = CollarParams()
     assert p.pin_stock_diameter == 1.75  # a PETG filament offcut
-    assert p.pin_press_hole_vertical == 1.85
+    assert p.pin_press_hole_vertical == 2.0
     assert p.pin_press_hole_horizontal == 1.85
-    assert p.pin_clearance_hole == 2.15
+    assert p.pin_clearance_hole == 2.05
     assert p.pin_lead_in == 0.3
     assert p.pin_lead_in_angle == 45.0  # a 0.3 mm 45° lead-in
     assert p.pin_roof_angle == 45.0  # the horizontal holes' 45° pointed roof
