@@ -446,9 +446,8 @@ LINKAGE_FIELDS = (
     "lever_face_x", "pivot_offset", "crank_radius", "link_length", "past_centre",
     "link_pin_height", "lever_width", "link_width", "lug_width", "cap_thickness",
     "cap_clearance", "cradle_back_depth", "battery_collar_height", "gap", "knuckle_wall",
-    "pin_clearance_hole", "pin_press_hole_vertical", "pin_press_hole_horizontal",
-    "pin_stock_diameter", "pin_lead_in", "pin_lead_in_angle", "pin_roof_angle", "print_gap",
-)
+    "pin_lead_in", "pin_lead_in_angle", "pin_roof_angle", "print_gap",
+)  # The Pin stock and Pin holes are fixed (CollarParams.FIXED).
 POSES = ("print", "closed", "open")  # as printed first
 
 

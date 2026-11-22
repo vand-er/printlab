@@ -11,6 +11,7 @@ above) about the hinge axis. Everything stands on z = 0.
 import math
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import ClassVar
 
 from build123d import Align, Axis, Box, Cylinder, Part, Plane, Polygon, Pos, RegularPolygon, extrude
 
@@ -42,6 +43,13 @@ class Slide(StrEnum):
 @dataclass(frozen=True)
 class CollarParams:
     """The sizes every collar builder reads; each part's `Params` extends it."""
+
+    # Set by the filament and the printed Pin strip, not by design: the nudge audit leaves
+    # them, since 10 % of a Pin hole is wider than the whole fit window the strip measured.
+    FIXED: ClassVar[frozenset[str]] = frozenset({
+        "pin_stock_diameter", "pin_press_hole_vertical", "pin_press_hole_horizontal",
+        "pin_clearance_hole",
+    })
 
     fdm_offset: float = 0.2  # mm added to each bore; FDM holes print undersize
     wall: float = 1.3  # mm, collar ring wall (load-bearing)

@@ -1,10 +1,24 @@
-"""The nudge audit's fit checks within one pose."""
+"""The nudge audit's fit checks within one pose, and which fields it nudges."""
+
+from dataclasses import dataclass
+from typing import ClassVar
 
 from build123d import Box, Pos
 
 from printlab import nudge
 
 CLEARANCE = 0.3  # mm
+
+
+def test_fields_a_params_type_fixes_are_not_nudged():
+    # A Pin hole picked from a printed strip is proven; nudging it 10 % tests a fit nobody prints.
+    @dataclass(frozen=True)
+    class Params:
+        FIXED: ClassVar[frozenset[str]] = frozenset({"hole"})
+        hole: float = 1.85
+        wall: float = 1.2
+
+    assert nudge.numeric_fields(Params) == ["wall"]
 
 
 def test_a_pair_naming_a_body_absent_from_the_pose_is_skipped():
