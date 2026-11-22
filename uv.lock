@@ -581,6 +581,7 @@ source = { editable = "." }
 dependencies = [
     { name = "build123d" },
     { name = "matplotlib" },
+    { name = "scipy" },
     { name = "trimesh" },
 ]
 
@@ -595,6 +596,7 @@ dev = [
 requires-dist = [
     { name = "build123d", specifier = ">=0.10,<0.14" },
     { name = "matplotlib", specifier = ">=3.8" },
+    { name = "scipy", specifier = ">=1.11" },
     { name = "trimesh", specifier = ">=4.0" },
 ]
 

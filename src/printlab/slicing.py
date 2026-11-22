@@ -15,12 +15,15 @@ import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import trimesh
+from build123d import Part
 
-from printlab import profiles
+from printlab import islands, profiles
+from printlab.islands import Island
 from printlab.slice_settings import SliceSettings
 
 BAMBU_STUDIO_ENV = "PRINTLAB_BAMBU_STUDIO"
@@ -64,6 +67,9 @@ class SliceReport:
     grams: float
     seconds: float
     supports: tuple[SupportRegion, ...]
+    islands: tuple[Island, ...] = ()
+    # The sliced config's first-layer settings, by key; two slices compare only when these are equal.
+    first_layer: Mapping[str, str | tuple[str, ...]] = field(default_factory=dict)
 
 
 def bambu_studio() -> Path:
@@ -83,8 +89,13 @@ def filament_preset(name: str) -> Path:
     return found[0]
 
 
-def slice_part(settings: SliceSettings, keep: Path | None = None) -> SliceReport:
-    """Slice and check the part; with `keep`, copy the sliced file there once every check has passed."""
+def slice_part(
+    settings: SliceSettings, keep: Path | None = None, bodies: Mapping[str, Part] = {}
+) -> SliceReport:
+    """Slice and check the part; with `keep`, copy the sliced file there once every check has passed.
+
+    `bodies` are the bodies in the STL, by name; first-layer islands are named after them.
+    """
     exe = bambu_studio()
     filament_path = filament_preset(settings.filament)
     try:
@@ -99,10 +110,16 @@ def slice_part(settings: SliceSettings, keep: Path | None = None) -> SliceReport
     with tempfile.TemporaryDirectory(prefix="printlab-slice-") as tmp:
         sliced, result = _run(exe, Path(tmp), machine, process, _labelled(raw_filament), settings)
         with zipfile.ZipFile(sliced) as archive:
-            _check_config(json.loads(archive.read("Metadata/project_settings.config")), filament, settings)
+            config = json.loads(archive.read("Metadata/project_settings.config"))
+            _check_config(config, filament, settings)
             grams, seconds = _plate_numbers(archive.read("Metadata/slice_info.config"), filament)
             gcode = archive.read("Metadata/plate_1.gcode").decode("utf-8")
-        report = SliceReport(grams, seconds, _supports(gcode, _bed_offset(result, settings.stl)))
+        offset = _bed_offset(result, settings.stl, config)
+        footprints = {name: islands.footprint(body) for name, body in bodies.items()}
+        report = SliceReport(
+            grams, seconds, _supports(gcode, offset),
+            islands.first_layer_islands(gcode, offset, footprints), islands.first_layer_settings(config),
+        )  # fmt: skip
         if keep is not None:
             shutil.copyfile(sliced, keep)
     return report
@@ -215,11 +232,15 @@ def _plate_numbers(slice_info: bytes, filament: dict) -> tuple[float, float]:
     return grams, seconds
 
 
-def _bed_offset(result: dict, stl: Path) -> tuple[float, float]:
-    """What to add to a bed position to get the part's own x and y (arrange moves the part)."""
+def _bed_offset(result: dict, stl: Path, config: dict) -> tuple[float, float]:
+    """What to add to a G-code position to get the part's own x and y (arrange moves the part).
+
+    The G-code is the plate position less the extruder offset (the X1C's is 0 x 2 mm).
+    """
     box = result["sliced_plates"][0]["objects"][0]["bbox"]
     low = trimesh.load(stl, force="mesh").bounds[0]
-    return float(low[0]) - box["x"], float(low[1]) - box["y"]
+    ex, ey = (float(v) for v in config["extruder_offset"][0].split("x"))
+    return float(low[0]) - box["x"] + ex, float(low[1]) - box["y"] + ey
 
 
 FEATURE = "; FEATURE: "

@@ -75,7 +75,9 @@ def main(argv: list[str] | None = None) -> int:
         keep.unlink(missing_ok=True)
         try:
             settings = read_slice_settings(args.part, PARTS_DIR)
-            report = slice_part(settings, keep if args.slice else None)
+            # Only the bodies in the STL that is sliced, not those in a second filament's STL.
+            sliced = {n: b for n, b in bodies.items() if not n.startswith(tuple(separate.values()))}
+            report = slice_part(settings, keep if args.slice else None, sliced)
         except (SliceError, SliceSettingsError) as problem:
             print(f"FAIL {args.part}: {problem}", file=sys.stderr)
             return 1
@@ -91,7 +93,18 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.slice:
             print(f"   sliced file: {keep.relative_to(PARTS_DIR.parent)} (to print it: docs/phone-route.md)")
+        _print_islands(report.islands)
     return 0
+
+
+def _print_islands(islands) -> None:
+    """Each first layer's islands, by body and then largest first."""
+    for layer in sorted({i.layer for i in islands}):
+        own = [i for i in islands if i.layer == layer]
+        print(f"   layer {layer} islands: {len(own)}")
+        for n, island in enumerate(own, 1):
+            (x, y), area = island.centroid, island.area
+            print(f"   layer {layer} island {n}: {island.body}, {area:.1f} mm² at x {x:.1f}, y {y:.1f}")
 
 
 if __name__ == "__main__":

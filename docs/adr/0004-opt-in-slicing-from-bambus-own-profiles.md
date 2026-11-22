@@ -2,6 +2,8 @@
 
 Narrows 0001 and 0002. On request, an agent may slice a part with the Bambu Studio command line and write a sliced file, `parts/<name>/out/<part>.gcode.3mf` (gitignored), so the user can start the print from Bambu Handy. `printlab build <part> --slice-check` slices the same way but keeps only grams, time and where supports land, for `print.md`. Normal builds never slice.
 
+The slice check also keeps the first-layer islands: each separate region of the first layers, brim included, with its area and the body it belongs to.
+
 The command line needs complete printer and filament settings, and the complete X1C printer settings hold its start G-code. So agents never write those settings by hand: a script resolves them from the profiles Bambu Studio itself uses (`%APPDATA%\BambuStudio\system\BBL`) exactly as Bambu Studio does, takes the user's own filament preset unchanged, and uses them only in a temp folder that is deleted afterwards. After slicing, the start, end and layer-change G-code, temperatures and bed area in the output must equal Bambu's originals byte for byte, `result.json` must be clean, and `--no-check` is never used; any difference deletes the file and fails the build. The process preset stays the only thing an agent controls (0002), and the preset check rejects `post_process`, `filename_format` and any key ending in `_gcode`.
 
 The user stays the last gate: they open the sliced file in Bambu Studio, check the toolpath preview, and send it to the printer's card themselves. Agents never send anything to the printer, sign in, or use a LAN access code.

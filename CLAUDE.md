@@ -31,6 +31,7 @@ src/printlab/slice_settings.py  read_slice_settings(): process, filament, plate,
 src/printlab/cli.py           the `printlab` command: build, list
 src/printlab/profiles.py      resolve(): Bambu's system profiles as Bambu Studio resolves them; filament()
 src/printlab/slicing.py       slice_part(): slice with the Bambu Studio CLI, check the output, return a SliceReport
+src/printlab/islands.py       first_layer_islands(): the first layers' islands from the G-code, named by body
 ```
 
 `tests/test_layout.py` checks this block names every module.
