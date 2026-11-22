@@ -8,6 +8,8 @@ from build123d import Compound
 from printlab.checks import check_part, hole_diameters
 from printlab.export import export_part, named_parts
 from printlab.parts import PARTS_DIR, load_part, part_names
+from printlab.slice_settings import SliceSettingsError, read_slice_settings
+from printlab.slicing import SliceError, slice_part
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -15,6 +17,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser("build", help="check and export a part")
     build.add_argument("part", choices=part_names())
+    build.add_argument(
+        "--slice-check",
+        action="store_true",
+        help="slice with Bambu Studio and report grams, time and supports; keep no sliced file",
+    )
     sub.add_parser("list", help="list parts")
     args = parser.parse_args(argv)
 
@@ -56,6 +63,23 @@ def main(argv: list[str] | None = None) -> int:
             f"WARN {args.part}: about {result.grams:.1f} g is over the {budget:g} g budget",
             file=sys.stderr,
         )
+    if args.slice_check:
+        try:
+            settings = read_slice_settings(args.part, PARTS_DIR)
+            report = slice_part(settings)
+        except (SliceError, SliceSettingsError) as problem:
+            print(f"FAIL {args.part}: {problem}", file=sys.stderr)
+            return 1
+        minutes, seconds = divmod(round(report.seconds), 60)
+        print(f"   sliced with: {settings.process}; {settings.filament}; {settings.plate}")
+        print(f"   sliced grams: {report.grams:.2f} g")
+        print(f"   sliced time: {minutes} min {seconds} s")
+        print(f"   sliced supports: {len(report.supports) or 'none'}")
+        for n, region in enumerate(report.supports, 1):
+            (x0, x1), (y0, y1), (z0, z1) = region.x, region.y, region.z
+            print(
+                f"   support {n}: x {x0:.0f} to {x1:.0f}, y {y0:.0f} to {y1:.0f}, z {z0:.1f} to {z1:.1f} mm"
+            )
     return 0
 
 

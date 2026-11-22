@@ -30,6 +30,7 @@ src/printlab/parts.py         part_names(), load_part(): find and import parts/<
 src/printlab/slice_settings.py  read_slice_settings(): process, filament, plate, PETG STL from print.md's fenced slice block
 src/printlab/cli.py           the `printlab` command: build, list
 src/printlab/profiles.py      resolve(): Bambu's system profiles as Bambu Studio resolves them; filament()
+src/printlab/slicing.py       slice_part(): slice with the Bambu Studio CLI, check the output, return a SliceReport
 ```
 
 `tests/test_layout.py` checks this block names every module.
