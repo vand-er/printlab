@@ -1,7 +1,7 @@
 name: ci
 
-# Runs on the user's own PC (a self-hosted runner): free for a private repo, and its 8 cores
-# finish the slow audits, which ran past GitHub's 6-hour limit on its 2-core runners.
+# GitHub-hosted: the repo is public, so its runners are free. The slow audits run one job per
+# part, in parallel, so none comes near GitHub's 6-hour job limit.
 # Push only: a PR shows its head's push run, so a pull_request trigger would run it twice.
 on:
   push:
@@ -12,16 +12,24 @@ concurrency:
 
 jobs:
   check:
-    runs-on: [self-hosted, Windows]
-    timeout-minutes: 120
-    # cmd, not PowerShell: the runner service's execution policy blocks the .ps1 step scripts.
-    defaults:
-      run:
-        shell: cmd
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run pytest -q
-      - run: uv run pytest -q -m slow -n 0
+
+  slow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [clamp, clamp-test-plate, clamp-lever-strip, clamp-gap-strip, clamp-pin-strip]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run pytest -q -m slow -n 0 parts/${{ matrix.part }}
