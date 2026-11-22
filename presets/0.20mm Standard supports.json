@@ -1,0 +1,9 @@
+{
+    "type": "process",
+    "name": "0.20mm Standard supports",
+    "inherits": "0.20mm Standard @BBL X1C",
+    "from": "User",
+    "print_settings_id": "0.20mm Standard supports",
+    "version": "2.9.0.81",
+    "enable_support": "1"
+}
