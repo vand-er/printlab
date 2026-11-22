@@ -28,6 +28,7 @@ src/printlab/pinhole.py       teardrop(), lead_in(): roofed Pin holes and their 
 src/printlab/nudge.py         the ±10 % Params nudge: nudged(), and audit() across worker processes
 src/printlab/parts.py         part_names(), load_part(): find and import parts/<name>/model.py
 src/printlab/cli.py           the `printlab` command: build, list
+src/printlab/profiles.py      resolve(): Bambu's system profiles as Bambu Studio resolves them; filament()
 ```
 
 `tests/test_layout.py` checks this block names every module.
