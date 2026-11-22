@@ -18,6 +18,29 @@ def _inherited(name: str) -> dict:
     return {**parent, **data}
 
 
+def _forbidden(preset: dict) -> list[str]:
+    """ADR 0004: keys that could run scripts or change G-code."""
+    return [k for k in preset if k in {"post_process", "filename_format"} or k.endswith("_gcode")]
+
+
+@pytest.mark.parametrize("path", PRESETS, ids=lambda p: p.stem)
+def test_preset_cannot_run_scripts_or_change_gcode(path):
+    assert not _forbidden(json.loads(path.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [
+        ("post_process", ["python evil.py"]),
+        ("filename_format", "{input_filename_base}.gcode"),
+        ("layer_change_gcode", "M117 hi"),
+    ],
+)
+def test_forbidden_key_fails_the_preset_check(key, value):
+    preset = {"type": "process", "name": "bad", "inherits": "0.20mm Standard @BBL X1C", key: value}
+    assert _forbidden(preset) == [key]
+
+
 @pytest.mark.skipif(not SYSTEM.is_dir(), reason="Bambu Studio system profiles not installed")
 @pytest.mark.parametrize("path", PRESETS, ids=lambda p: p.stem)
 def test_preset_overrides_only_known_settings(path):
