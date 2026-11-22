@@ -29,8 +29,9 @@ src/printlab/nudge.py         the ±10 % Params nudge: nudged(), and audit() acr
 src/printlab/parts.py         part_names(), load_part(): find and import parts/<name>/model.py
 src/printlab/slice_settings.py  read_slice_settings(): process, filament, plate, PETG STL from print.md's fenced slice block
 src/printlab/cli.py           the `printlab` command: build, list
-src/printlab/profiles.py      resolve(): Bambu's system profiles as Bambu Studio resolves them; filament()
+src/printlab/profiles.py      resolve(): Bambu's system profiles as Bambu Studio resolves them; filament_preset()
 src/printlab/slicing.py       slice_part(): slice with the Bambu Studio CLI, check the output, return a SliceReport
+src/printlab/gcode.py         extrusions(): the extruding moves of a sliced G-code, by feature
 src/printlab/islands.py       first_layer_islands(): the first layers' islands from the G-code, named by body
 src/printlab/reference.py     compare_first_layers(): a part's first layers against a reference print's
 ```

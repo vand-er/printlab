@@ -70,6 +70,7 @@ class SliceReport:
     islands: tuple[Island, ...] = ()
     # The sliced config's first-layer settings, by key; two slices compare only when these are equal.
     first_layer: Mapping[str, str | tuple[str, ...]] = field(default_factory=dict)
+    warnings: tuple[str, ...] = ()  # Bambu Studio's own, from result.json
 
 
 def bambu_studio() -> Path:
@@ -94,20 +95,25 @@ def slice_part(
     except profiles.ProfileError as problem:
         raise SliceError(str(problem)) from problem
     filament = json.loads(raw_filament.decode("utf-8-sig"))
+    try:
+        resolved_filament = _resolved_filament(filament)
+    except profiles.ProfileError as problem:
+        raise SliceError(str(problem)) from problem
     if not settings.stl.is_file():
         raise SliceError(f"no STL to slice at {settings.stl}")
     with tempfile.TemporaryDirectory(prefix="printlab-slice-") as tmp:
         sliced, result = _run(exe, Path(tmp), machine, process, _labelled(raw_filament), settings)
         with zipfile.ZipFile(sliced) as archive:
             config = json.loads(archive.read("Metadata/project_settings.config"))
-            _check_config(config, filament, settings)
-            grams, seconds = _plate_numbers(archive.read("Metadata/slice_info.config"), filament)
+            _check_config(config, resolved_filament, settings)
+            grams, seconds = _plate_numbers(archive.read("Metadata/slice_info.config"), resolved_filament)
             gcode = archive.read("Metadata/plate_1.gcode").decode("utf-8")
         offset = _bed_offset(result, settings.stl, config)
         footprints = {name: islands.footprint(body) for name, body in (bodies or {}).items()}
         report = SliceReport(
             grams, seconds, _supports(gcode, offset),
             islands.first_layer_islands(gcode, offset, footprints), islands.first_layer_settings(config),
+            _warnings(result),
         )  # fmt: skip
         if keep is not None:
             shutil.copyfile(sliced, keep)
@@ -126,6 +132,13 @@ def _process(name: str) -> dict:
     settings.update({k: v for k, v in preset.items() if k not in PRESET_LABELS})
     settings.update({"name": name, "inherits": preset["inherits"], "from": "User", "print_settings_id": name})
     return settings
+
+
+def _resolved_filament(preset: dict) -> dict:
+    """The user's filament preset laid over the system one it inherits, if any, as the GUI slices it."""
+    if not preset.get("inherits"):
+        return preset
+    return profiles.resolve("filament", preset["inherits"]) | preset
 
 
 def _labelled(raw: bytes) -> bytes:
@@ -170,13 +183,14 @@ def _run(exe, tmp, machine, process, filament, settings) -> tuple[Path, dict]:
     result = json.loads(result_path.read_text(encoding="utf-8"))
     if result.get("return_code") != 0:
         raise SliceError(f"Bambu Studio failed ({result.get('return_code')}): {result.get('error_string')}")
-    if warnings := [
-        p["warning_message"] for p in result.get("sliced_plates", []) if p.get("warning_message")
-    ]:
-        raise SliceError(f"Bambu Studio warned: {'; '.join(warnings)}")
     if run.returncode != 0 or not sliced.is_file():
         raise SliceError(f"Bambu Studio exited with {run.returncode} and no sliced file")
     return sliced, result
+
+
+def _warnings(result: dict) -> tuple[str, ...]:
+    """Bambu Studio's own warnings, such as a floating cantilever; they are reported, never fatal."""
+    return tuple(p["warning_message"] for p in result.get("sliced_plates", []) if p.get("warning_message"))
 
 
 def _bambu_original(name: str, key: str):
@@ -203,8 +217,10 @@ def _check_config(config: dict, filament: dict, settings: SliceSettings) -> None
     expected.update({k: v for k, v in filament.items() if "temp" in k and not k.startswith(AMS_DRYING)})
     expected["curr_bed_type"] = settings.plate
     if differing := [key for key, value in expected.items() if config.get(key) != value]:
+        parent = filament.get("inherits")
+        why = f"; the filament preset inherits {parent}, which the command line ignores" if parent else ""
         raise SliceError(
-            f"sliced config differs from Bambu's and the user's presets in {', '.join(differing)}"
+            f"sliced config differs from Bambu's and the user's presets in {', '.join(differing)}{why}"
         )
 
 

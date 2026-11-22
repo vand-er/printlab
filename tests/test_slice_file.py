@@ -86,6 +86,26 @@ def test_a_tampered_profile_under_slice_leaves_no_sliced_file(cube, temp_dir, mo
     assert list(temp_dir.iterdir()) == []
 
 
+def test_slice_check_leaves_an_earlier_sliced_file_alone(cube, monkeypatch, tmp_path):
+    earlier = cube / "out" / "cube.gcode.3mf"
+    earlier.parent.mkdir()
+    earlier.write_bytes(b"sliced earlier")
+    monkeypatch.setenv("PRINTLAB_BAMBU_STUDIO", str(tmp_path / "nowhere" / "bambu-studio.exe"))
+
+    assert cli.main(["build", "cube", "--slice-check"]) != 0
+    assert earlier.read_bytes() == b"sliced earlier"
+
+
+def test_a_failed_slice_leaves_no_earlier_sliced_file(cube, monkeypatch, tmp_path):
+    earlier = cube / "out" / "cube.gcode.3mf"
+    earlier.parent.mkdir()
+    earlier.write_bytes(b"sliced earlier")
+    monkeypatch.setenv("PRINTLAB_BAMBU_STUDIO", str(tmp_path / "nowhere" / "bambu-studio.exe"))
+
+    assert cli.main(["build", "cube", "--slice"]) != 0
+    assert _sliced(cube) == []
+
+
 def test_a_sliced_file_in_a_parts_outputs_is_gitignored():
     check = subprocess.run(
         ["git", "check-ignore", "-q", "parts/clamp/out/clamp.gcode.3mf"], cwd=slicing.PRESETS_DIR.parent

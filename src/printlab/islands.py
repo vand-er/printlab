@@ -22,9 +22,11 @@ FOOTPRINT_TOLERANCE_MM = 0.05  # tessellation tolerance of a body's footprint
 SLIVER_MM2 = 1e-9  # triangles seen edge-on from above, left out of a footprint
 
 # The sliced config's first-layer settings; a plate's own bed temperature key, by plate type.
+# Bambu Studio has no first-layer speed for non-printing moves: the first layer uses the process-wide one.
 FIRST_LAYER_KEYS = (
     "initial_layer_print_height", "initial_layer_line_width", "initial_layer_infill_line_width",
-    "initial_layer_speed", "initial_layer_infill_speed", "curr_bed_type", "nozzle_temperature_initial_layer",
+    "initial_layer_speed", "initial_layer_infill_speed", "travel_speed", "curr_bed_type",
+    "nozzle_temperature_initial_layer",
 )  # fmt: skip
 BED_TEMP_KEYS = {
     "Cool Plate": "cool_plate_temp_initial_layer", "Engineering Plate": "eng_plate_temp_initial_layer",

@@ -10,7 +10,8 @@ Print it after the Lever strip, once its Stroke pick is in `Params.stroke` (0.6 
 - **Plate:** Textured PEI.
 - **Orientation:** as exported. The Cradle upright with the Cart collar on the rib above the Battery collar; the Doors on the bed in front; the Lever, three caps and the Link flat behind, each lead-in on top. Don't rotate.
 - **Print dialog:** flow calibration on; timelapse off.
-- **Expected:** about 4.7 g PETG; about 30 min (Bambu Studio's estimate is the real one).
+- **Expected:** 4.18 g PETG; 30 min (slice check, 2026-11-22). No supports; Bambu Studio warns of a floating cantilever, which is not a failure.
+- **Reference print:** the Pin strip (`clamp-pin-strip`). The first-layer settings match; in layer 3 the Battery Door (56 mm²), Cart Door (55 mm²), Lever (67 mm²) and three caps (8.5 mm² each) are smaller than its smallest (93 mm²), so watch them stick. The Cart collar body has no first-layer island of its own; it sits on the rib above the Battery collar.
 - **To start it from the phone:** [phone route](../../docs/phone-route.md).
 
 ```slice
