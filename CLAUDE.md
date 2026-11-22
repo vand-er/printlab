@@ -29,6 +29,7 @@ src/printlab/nudge.py         the ±10 % Params nudge: nudged(), and audit() acr
 src/printlab/parts.py         part_names(), load_part(): find and import parts/<name>/model.py
 src/printlab/slice_settings.py  read_slice_settings(): process, filament, plate, PETG STL from print.md's fenced slice block
 src/printlab/cli.py           the `printlab` command: build, list
+src/printlab/profiles.py      resolve(): Bambu's system profiles as Bambu Studio resolves them; filament()
 ```
 
 `tests/test_layout.py` checks this block names every module.
