@@ -7,3 +7,5 @@ __pycache__/
 .claude/worktrees/
 handoff-print-lab.md
 transcript-full.md
+# Sliced files (ADR 0004): rebuilt with printlab build <part> --slice, never committed.
+parts/*/out/*.gcode.3mf

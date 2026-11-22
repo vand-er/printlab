@@ -2,13 +2,15 @@
 
 `slice_part(settings)` resolves the X1C machine settings and the process preset, takes the user's
 filament preset unchanged, slices the part's STL in a temp folder that is always deleted, checks the
-sliced output against Bambu's originals, and returns a `SliceReport`. Nothing sliced is kept.
+sliced output against Bambu's originals, and returns a `SliceReport`. Nothing sliced is kept unless
+`keep` names where the checked sliced file goes.
 """
 
 import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -81,7 +83,8 @@ def filament_preset(name: str) -> Path:
     return found[0]
 
 
-def slice_part(settings: SliceSettings) -> SliceReport:
+def slice_part(settings: SliceSettings, keep: Path | None = None) -> SliceReport:
+    """Slice and check the part; with `keep`, copy the sliced file there once every check has passed."""
     exe = bambu_studio()
     filament_path = filament_preset(settings.filament)
     try:
@@ -99,7 +102,10 @@ def slice_part(settings: SliceSettings) -> SliceReport:
             _check_config(json.loads(archive.read("Metadata/project_settings.config")), filament, settings)
             grams, seconds = _plate_numbers(archive.read("Metadata/slice_info.config"), filament)
             gcode = archive.read("Metadata/plate_1.gcode").decode("utf-8")
-    return SliceReport(grams, seconds, _supports(gcode, _bed_offset(result, settings.stl)))
+        report = SliceReport(grams, seconds, _supports(gcode, _bed_offset(result, settings.stl)))
+        if keep is not None:
+            shutil.copyfile(sliced, keep)
+    return report
 
 
 def _process(name: str) -> dict:

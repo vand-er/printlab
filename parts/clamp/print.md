@@ -11,6 +11,7 @@ Print it after the Lever strip, once its Stroke pick is in `Params.stroke` (0.6 
 - **Orientation:** as exported. The Cradle upright with the Cart collar on the rib above the Battery collar; the Doors on the bed in front; the Lever, three caps and the Link flat behind, each lead-in on top. Don't rotate.
 - **Print dialog:** flow calibration on; timelapse off.
 - **Expected:** about 4.7 g PETG; about 30 min (Bambu Studio's estimate is the real one).
+- **To start it from the phone:** [phone route](../../docs/phone-route.md).
 
 ```slice
 process: 0.20mm Standard @BBL X1C
