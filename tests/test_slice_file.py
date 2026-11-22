@@ -42,19 +42,7 @@ def temp_dir(tmp_path, monkeypatch):
     return folder
 
 
-def _bambu_ready() -> bool:
-    try:
-        slicing.bambu_studio()
-        slicing.filament_preset(FILAMENT)
-    except slicing.SliceError:
-        return False
-    return profiles.SYSTEM.is_dir()
-
-
-def real_slicer(test):
-    """Runs the real slicer: slow, and skipped where Bambu Studio is not set up."""
-    absent = pytest.mark.skipif(not _bambu_ready(), reason="Bambu Studio, its profiles or the preset absent")
-    return pytest.mark.slow(absent(test))
+real_slicer = pytest.mark.real_slicer
 
 
 def _sliced(folder):
@@ -96,6 +84,26 @@ def test_a_tampered_profile_under_slice_leaves_no_sliced_file(cube, temp_dir, mo
     assert "machine_start_gcode" in capsys.readouterr().err
     assert _sliced(cube) == []
     assert list(temp_dir.iterdir()) == []
+
+
+def test_slice_check_leaves_an_earlier_sliced_file_alone(cube, monkeypatch, tmp_path):
+    earlier = cube / "out" / "cube.gcode.3mf"
+    earlier.parent.mkdir()
+    earlier.write_bytes(b"sliced earlier")
+    monkeypatch.setenv("PRINTLAB_BAMBU_STUDIO", str(tmp_path / "nowhere" / "bambu-studio.exe"))
+
+    assert cli.main(["build", "cube", "--slice-check"]) != 0
+    assert earlier.read_bytes() == b"sliced earlier"
+
+
+def test_a_failed_slice_leaves_no_earlier_sliced_file(cube, monkeypatch, tmp_path):
+    earlier = cube / "out" / "cube.gcode.3mf"
+    earlier.parent.mkdir()
+    earlier.write_bytes(b"sliced earlier")
+    monkeypatch.setenv("PRINTLAB_BAMBU_STUDIO", str(tmp_path / "nowhere" / "bambu-studio.exe"))
+
+    assert cli.main(["build", "cube", "--slice"]) != 0
+    assert _sliced(cube) == []
 
 
 def test_a_sliced_file_in_a_parts_outputs_is_gitignored():

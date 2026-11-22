@@ -113,8 +113,12 @@ A part sliced by printlab with Bambu's own printer settings and the user's filam
 _Avoid_: G-code, project file, 3MF
 
 **Slice check**:
-A slice made only to learn a part's grams, time and where supports land; the sliced output is discarded.
+A slice made only to learn a part's grams, time, where supports land and its first-layer islands; the sliced output is discarded.
 _Avoid_: Test slice, dry run
+
+**First-layer island**:
+One separate region the slicer extrudes in one of a part's first layers, brim included, with its area and the body it belongs to.
+_Avoid_: Blob
 
 **Reference print**:
 A part that has already printed well, whose first layers a new part's are compared with.

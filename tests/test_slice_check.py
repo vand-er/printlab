@@ -1,6 +1,7 @@
 """printlab build <part> --slice-check slices with the real Bambu Studio command line (ADR 0004)."""
 
 import json
+import re
 import tempfile
 from types import SimpleNamespace
 
@@ -12,23 +13,25 @@ from printlab import cli, profiles, slicing
 SLICE_BLOCK = """
 ```slice
 process: {process}
-filament: Overture PETG transparent @Bambu Lab X1 Carbon 0.4 nozzle
+filament: {filament}
 plate: Textured PEI Plate
 stl: out/{name}.stl
 ```
 """
+PROCESS = "0.20mm Standard @BBL X1C"
+FILAMENT = "Overture PETG transparent @Bambu Lab X1 Carbon 0.4 nozzle"
 
 
 @pytest.fixture
 def slice_part(tmp_path, monkeypatch):
     """A fake part with a print.md that names how to slice it."""
 
-    def use(build=lambda: Box(10, 10, 10), name="cube", process="0.20mm Standard @BBL X1C"):
+    def use(build=lambda: Box(10, 10, 10), name="cube", process=PROCESS, filament=FILAMENT):
         part = SimpleNamespace(build=build)
         parts = tmp_path / "parts"
         (parts / name).mkdir(parents=True, exist_ok=True)
         (parts / name / "print.md").write_text(
-            SLICE_BLOCK.format(process=process, name=name), encoding="utf-8"
+            SLICE_BLOCK.format(process=process, filament=filament, name=name), encoding="utf-8"
         )
         monkeypatch.setattr(cli, "PARTS_DIR", parts)
         monkeypatch.setattr(cli, "part_names", lambda: [name])
@@ -38,19 +41,7 @@ def slice_part(tmp_path, monkeypatch):
     return use
 
 
-def _bambu_ready() -> bool:
-    try:
-        slicing.bambu_studio()
-        slicing.filament_preset("Overture PETG transparent @Bambu Lab X1 Carbon 0.4 nozzle")
-    except slicing.SliceError:
-        return False
-    return profiles.SYSTEM.is_dir()
-
-
-def real_slicer(test):
-    """Runs the real slicer: slow, and skipped where Bambu Studio is not set up."""
-    absent = pytest.mark.skipif(not _bambu_ready(), reason="Bambu Studio, its profiles or the preset absent")
-    return pytest.mark.slow(absent(test))
+real_slicer = pytest.mark.real_slicer
 
 
 @pytest.fixture
@@ -101,6 +92,31 @@ def test_a_tampered_resolved_profile_fails_the_build_and_keeps_nothing(
 
 
 @pytest.fixture
+def inheriting_preset(tmp_path, monkeypatch):
+    """A user filament preset that, as Bambu Studio saves it, holds only what differs from its parent."""
+    user = tmp_path / "user"
+    folder = user / "80784227" / "filament"
+    folder.mkdir(parents=True)
+    preset = {"name": "PETG HF 245", "inherits": "Bambu PETG HF @BBL X1C", "from": "User",
+              "filament_settings_id": ["PETG HF 245"], "nozzle_temperature": ["245", "245"]}  # fmt: skip
+    (folder / "PETG HF 245.json").write_text(json.dumps(preset, indent=4), encoding="utf-8")
+    monkeypatch.setattr(profiles, "USER", user)
+    return "PETG HF 245"
+
+
+@real_slicer
+def test_a_filament_preset_is_checked_against_what_it_inherits_too(slice_part, inheriting_preset, capsys):
+    # The command line does not resolve a user preset's inherits (v02.09.01.70): it slices a default PLA.
+    slice_part(filament=inheriting_preset)
+
+    assert cli.main(["build", "cube", "--slice-check"]) != 0
+    err = capsys.readouterr().err
+    assert err.startswith("FAIL cube: ")
+    assert "nozzle_temperature_initial_layer" in err  # set only by the parent
+    assert "inherits Bambu PETG HF @BBL X1C" in err
+
+
+@pytest.fixture
 def supports_on(tmp_path, monkeypatch):
     """A process preset in presets/ that turns supports on."""
     presets = tmp_path / "presets"
@@ -129,6 +145,16 @@ def test_supports_are_reported_where_an_overhang_needs_them(slice_part, supports
     for region in regions:
         x0, x1 = (float(v) for v in region.split(",")[0].removeprefix("x ").split(" to "))
         assert x1 <= -4 or x0 >= 4, f"support under the post: {region}"  # the post spans x -5 to 5
+
+
+@real_slicer
+def test_a_bambu_studio_warning_prints_as_warn_and_the_slice_check_goes_on(slice_part, capsys):
+    slice_part(build=_tee)  # no supports under its overhanging arms
+
+    assert cli.main(["build", "cube", "--slice-check"]) == 0
+    captured = capsys.readouterr()
+    assert re.search(r"^WARN cube: Bambu Studio: .*floating cantilever", captured.err, re.M), captured.err
+    assert float(_lines(captured.out)["sliced grams"].removesuffix(" g")) > 0
 
 
 @real_slicer

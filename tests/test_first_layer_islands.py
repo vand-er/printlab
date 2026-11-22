@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from build123d import Box, Pos
 
-from printlab import cli, islands, profiles, slicing
+from printlab import cli, islands, slicing
 
 FILAMENT = "Overture PETG transparent @Bambu Lab X1 Carbon 0.4 nozzle"
 SLICE_BLOCK = """
@@ -21,20 +21,7 @@ stl: out/{name}.stl
 ISLAND = re.compile(r"^ +layer (\d+) island \d+: (.+), ([\d.]+) mm² at x (-?[\d.]+), y (-?[\d.]+)$")
 
 
-def _bambu_ready() -> bool:
-    try:
-        slicing.bambu_studio()
-        slicing.filament_preset(FILAMENT)
-    except slicing.SliceError:
-        return False
-    return profiles.SYSTEM.is_dir()
-
-
-# Every test here runs the real slicer: slow, and skipped where Bambu Studio is not set up.
-pytestmark = [
-    pytest.mark.slow,
-    pytest.mark.skipif(not _bambu_ready(), reason="Bambu Studio, its profiles or the preset absent"),
-]
+pytestmark = pytest.mark.real_slicer
 
 
 @pytest.fixture
@@ -99,15 +86,15 @@ def test_a_box_with_brim_is_one_island_that_includes_the_brim(part, brim_on, cap
 
 @pytest.fixture
 def two_parts(tmp_path, monkeypatch):
-    """Fake parts by name, each a dict of named bodies, sliced the same way."""
+    """Fake parts by name, each a dict of named bodies, sliced the same way unless `processes` says."""
 
-    def use(parts):
+    def use(parts, processes=None):
         for name in parts:
             folder = tmp_path / "parts" / name
             folder.mkdir(parents=True, exist_ok=True)
+            process = (processes or {}).get(name, "0.20mm Standard @BBL X1C")
             (folder / "print.md").write_text(
-                SLICE_BLOCK.format(process="0.20mm Standard @BBL X1C", filament=FILAMENT, name=name),
-                encoding="utf-8",
+                SLICE_BLOCK.format(process=process, filament=FILAMENT, name=name), encoding="utf-8"
             )
         monkeypatch.setattr(cli, "PARTS_DIR", tmp_path / "parts")
         monkeypatch.setattr(cli, "part_names", lambda: sorted(parts))
@@ -118,7 +105,6 @@ def two_parts(tmp_path, monkeypatch):
 
 def test_a_part_smaller_than_its_reference_print_warns_naming_its_body(two_parts, capsys):
     two_parts({"big": {"Big": _box(20, 20, 4, (0, 0))}, "small": {"Small": _box(8, 8, 4, (0, 0))}})
-    assert cli.main(["build", "big"]) == 0  # the reference print's STL
 
     assert cli.main(["build", "small", "--slice-check", "--reference", "big"]) == 0
     err = capsys.readouterr().err
@@ -126,6 +112,77 @@ def test_a_part_smaller_than_its_reference_print_warns_naming_its_body(two_parts
     assert warning, err
     assert float(warning[1]) == pytest.approx(64, rel=0.1)
     assert float(warning[2]) == pytest.approx(400, rel=0.05)
+
+
+@pytest.fixture
+def preset(tmp_path, monkeypatch):
+    """A process preset in presets/ that changes the given settings of the standard one."""
+    presets = tmp_path / "presets"
+    presets.mkdir(exist_ok=True)
+    monkeypatch.setattr(slicing, "PRESETS_DIR", presets)
+
+    def use(name, **settings):
+        body = {"type": "process", "name": name, "inherits": "0.20mm Standard @BBL X1C", **settings}
+        (presets / f"{name}.json").write_text(json.dumps(body), encoding="utf-8")
+        return name
+
+    return use
+
+
+def _sliced(folder):
+    return [p for p in folder.rglob("*") if p.name.endswith((".3mf", ".gcode"))]
+
+
+def test_slice_keeps_no_sliced_file_when_the_reference_comparison_is_invalid(
+    two_parts, preset, tmp_path, capsys
+):
+    thick = preset("thick first layer", initial_layer_print_height="0.28")
+    two_parts({"big": {"Big": _box(20, 20, 4, (0, 0))}, "small": {"Small": _box(8, 8, 4, (0, 0))}},
+              processes={"big": thick})  # fmt: skip
+
+    assert cli.main(["build", "small", "--slice", "--reference", "big"]) != 0
+    assert "initial_layer_print_height" in capsys.readouterr().err
+    assert _sliced(tmp_path / "parts") == []
+
+
+def test_a_reference_print_whose_first_layer_travels_at_another_speed_is_invalid(two_parts, preset, capsys):
+    # Bambu Studio has no initial_layer_travel_speed: its first layer travels at travel_speed.
+    slow_travel = preset("slow travel", travel_speed=["300", "300"])
+    two_parts({"big": {"Big": _box(20, 20, 4, (0, 0))}, "small": {"Small": _box(8, 8, 4, (0, 0))}},
+              processes={"big": slow_travel})  # fmt: skip
+
+    assert cli.main(["build", "small", "--slice-check", "--reference", "big"]) != 0
+    err = capsys.readouterr().err
+    assert re.search(r"^FAIL small: first-layer settings differ .*travel_speed", err, re.M), err
+
+
+def test_slice_keeps_no_sliced_file_when_the_reference_print_cannot_be_sliced(two_parts, tmp_path, capsys):
+    two_parts({"big": {"Big": _box(20, 20, 4, (0, 0))}, "small": {"Small": _box(8, 8, 4, (0, 0))}})
+    (tmp_path / "parts" / "big" / "print.md").write_text("# no slice block\n", encoding="utf-8")
+
+    assert cli.main(["build", "small", "--slice", "--reference", "big"]) != 0
+    assert "FAIL small: reference print big" in capsys.readouterr().err
+    assert _sliced(tmp_path / "parts") == []
+
+
+def test_slice_keeps_its_sliced_file_when_the_reference_comparison_only_warns(two_parts, tmp_path):
+    two_parts({"big": {"Big": _box(20, 20, 4, (0, 0))}, "small": {"Small": _box(8, 8, 4, (0, 0))}})
+
+    assert cli.main(["build", "small", "--slice", "--reference", "big"]) == 0
+    assert _sliced(tmp_path / "parts") == [tmp_path / "parts" / "small" / "out" / "small.gcode.3mf"]
+
+
+def test_the_reference_print_is_rebuilt_before_it_is_sliced(two_parts, capsys):
+    parts = {"big": {"Big": _box(6, 6, 4, (0, 0))}, "small": {"Small": _box(8, 8, 4, (0, 0))}}
+    two_parts(parts)
+    assert cli.main(["build", "big"]) == 0  # an STL from before the reference print changed
+    parts["big"] = {"Big": _box(20, 20, 4, (0, 0))}
+
+    assert cli.main(["build", "small", "--slice-check", "--reference", "big"]) == 0
+    err = capsys.readouterr().err
+    warning = re.search(r"^WARN small: layer 1 Small: [\d.]+ mm², below big's ([\d.]+) mm²$", err, re.M)
+    assert warning, err
+    assert float(warning[1]) == pytest.approx(400, rel=0.05)
 
 
 @pytest.mark.parametrize("first_layers", [1, 2])
