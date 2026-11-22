@@ -12,6 +12,13 @@ Print it before any part moves to Pins (ADR 0003). It chooses three hole sizes f
 - **Print dialog:** flow calibration on; timelapse off.
 - **Expected:** about 2.0 g PETG plus a trace of PLA; about 30 min (Bambu Studio's estimate is the real one). Two filament swaps, both in the first layers.
 
+```slice
+process: 0.20mm Standard @BBL X1C
+filament: Overture PETG transparent @Bambu Lab X1 Carbon 0.4 nozzle
+plate: Textured PEI Plate
+stl: out/clamp-pin-strip.stl
+```
+
 ## Judge
 
 Cut three offcuts of the PETG spool, each about 20 mm, square and deburred. Push the Pin in from the mouth (the chamfered end: the top of a tube, the back end of a horizontal hole).

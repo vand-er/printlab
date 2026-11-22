@@ -12,6 +12,13 @@ Print it after the Lever strip, once its Stroke pick is in `Params.stroke` (0.6 
 - **Print dialog:** flow calibration on; timelapse off.
 - **Expected:** about 4.7 g PETG; about 30 min (Bambu Studio's estimate is the real one).
 
+```slice
+process: 0.20mm Standard @BBL X1C
+filament: Overture PETG transparent @Bambu Lab X1 Carbon 0.4 nozzle
+plate: Textured PEI Plate
+stl: out/clamp.stl
+```
+
 ## Pins
 
 Five, cut from the same 1.75 mm PETG, square and deburred:

@@ -27,6 +27,7 @@ src/printlab/font.py          text(): label glyphs from a font file CI has too
 src/printlab/pinhole.py       teardrop(), lead_in(): roofed Pin holes and their lead-ins
 src/printlab/nudge.py         the ±10 % Params nudge: nudged(), and audit() across worker processes
 src/printlab/parts.py         part_names(), load_part(): find and import parts/<name>/model.py
+src/printlab/slice_settings.py  read_slice_settings(): process, filament, plate, PETG STL from print.md's fenced slice block
 src/printlab/cli.py           the `printlab` command: build, list
 ```
 

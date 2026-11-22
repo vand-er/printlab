@@ -12,6 +12,13 @@ Print it after the Pin strip, once its picks are in `CollarParams`. It chooses t
 - **Print dialog:** flow calibration on; timelapse off.
 - **Expected:** about 7.2 g PETG; about 1 h (Bambu Studio's estimate is the real one).
 
+```slice
+process: 0.20mm Standard @BBL X1C
+filament: Overture PETG transparent @Bambu Lab X1 Carbon 0.4 nozzle
+plate: Textured PEI Plate
+stl: out/clamp-test-plate.stl
+```
+
 ## Pins
 
 Six Pins, one per collar hinge, each a 9 mm offcut of the same 1.75 mm PETG, cut square and deburred.

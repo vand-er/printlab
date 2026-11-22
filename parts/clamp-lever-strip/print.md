@@ -12,6 +12,13 @@ Print it after the Test plate, once its bore picks are in `ClampParams`. It choo
 - **Print dialog:** flow calibration on; timelapse off.
 - **Expected:** about 14.5 g PETG; about 1.5 h (Bambu Studio's estimate is the real one).
 
+```slice
+process: 0.20mm Standard @BBL X1C
+filament: Overture PETG transparent @Bambu Lab X1 Carbon 0.4 nozzle
+plate: Textured PEI Plate
+stl: out/clamp-lever-strip.stl
+```
+
 ## Pins
 
 Five per Clamp, fifteen in all, cut from the same 1.75 mm PETG, square and deburred:
