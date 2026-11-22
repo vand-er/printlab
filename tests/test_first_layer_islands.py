@@ -97,6 +97,37 @@ def test_a_box_with_brim_is_one_island_that_includes_the_brim(part, brim_on, cap
     assert first[0][2] > 400 + 0.8 * 540
 
 
+@pytest.fixture
+def two_parts(tmp_path, monkeypatch):
+    """Fake parts by name, each a dict of named bodies, sliced the same way."""
+
+    def use(parts):
+        for name in parts:
+            folder = tmp_path / "parts" / name
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "print.md").write_text(
+                SLICE_BLOCK.format(process="0.20mm Standard @BBL X1C", filament=FILAMENT, name=name),
+                encoding="utf-8",
+            )
+        monkeypatch.setattr(cli, "PARTS_DIR", tmp_path / "parts")
+        monkeypatch.setattr(cli, "part_names", lambda: sorted(parts))
+        monkeypatch.setattr(cli, "load_part", lambda name: SimpleNamespace(build=lambda: parts[name]))
+
+    return use
+
+
+def test_a_part_smaller_than_its_reference_print_warns_naming_its_body(two_parts, capsys):
+    two_parts({"big": {"Big": _box(20, 20, 4, (0, 0))}, "small": {"Small": _box(8, 8, 4, (0, 0))}})
+    assert cli.main(["build", "big"]) == 0  # the reference print's STL
+
+    assert cli.main(["build", "small", "--slice-check", "--reference", "big"]) == 0
+    err = capsys.readouterr().err
+    warning = re.search(r"^WARN small: layer 1 Small: ([\d.]+) mm², below big's ([\d.]+) mm²$", err, re.M)
+    assert warning, err
+    assert float(warning[1]) == pytest.approx(64, rel=0.1)
+    assert float(warning[2]) == pytest.approx(400, rel=0.05)
+
+
 @pytest.mark.parametrize("first_layers", [1, 2])
 def test_first_layers_sets_how_many_layers_are_reported(part, monkeypatch, capsys, first_layers):
     monkeypatch.setattr(islands, "FIRST_LAYERS", first_layers)

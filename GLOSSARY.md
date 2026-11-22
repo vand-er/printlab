@@ -115,3 +115,7 @@ _Avoid_: G-code, project file, 3MF
 **Slice check**:
 A slice made only to learn a part's grams, time and where supports land; the sliced output is discarded.
 _Avoid_: Test slice, dry run
+
+**Reference print**:
+A part that has already printed well, whose first layers a new part's are compared with.
+_Avoid_: Baseline, benchmark

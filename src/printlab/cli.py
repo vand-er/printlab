@@ -8,6 +8,7 @@ from build123d import Compound
 from printlab.checks import check_part, hole_diameters
 from printlab.export import export_part, named_parts
 from printlab.parts import PARTS_DIR, load_part, part_names
+from printlab.reference import Invalid, Passed, compare_first_layers
 from printlab.slice_settings import SliceSettingsError, read_slice_settings
 from printlab.slicing import SliceError, slice_part
 
@@ -28,8 +29,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="as --slice-check, and keep the sliced file in out/ for the phone route (docs/phone-route.md)",
     )
+    build.add_argument(
+        "--reference",
+        metavar="PART",
+        help="with --slice-check or --slice, check the first layers against this reference print's",
+    )
     sub.add_parser("list", help="list parts")
     args = parser.parse_args(argv)
+    if args.command == "build" and args.reference is not None:
+        if not (args.slice_check or args.slice):
+            build.error("--reference needs --slice-check or --slice")
+        if args.reference not in part_names():
+            build.error(f"--reference: no part named {args.reference!r}")
 
     if args.command == "list":
         print("\n".join(part_names()))
@@ -94,6 +105,39 @@ def main(argv: list[str] | None = None) -> int:
         if args.slice:
             print(f"   sliced file: {keep.relative_to(PARTS_DIR.parent)} (to print it: docs/phone-route.md)")
         _print_islands(report.islands)
+        if args.reference is not None:
+            return _check_reference(args.part, report, args.reference)
+    return 0
+
+
+def _check_reference(part: str, report, reference: str) -> int:
+    """Slice the reference print fresh, from its PETG STL only, and compare the first layers."""
+    try:
+        theirs = slice_part(read_slice_settings(reference, PARTS_DIR))
+    except (SliceError, SliceSettingsError) as problem:
+        print(f"FAIL {part}: reference print {reference}: {problem}", file=sys.stderr)
+        return 1
+    verdict = compare_first_layers(report, theirs)
+    if isinstance(verdict, Invalid):
+        print(
+            f"FAIL {part}: first-layer settings differ from {reference}'s in {', '.join(verdict.settings)}",
+            file=sys.stderr,
+        )
+        return 1
+    if isinstance(verdict, Passed):
+        smallest = "; ".join(
+            f"layer {layer} {own:.1f} mm² against {ref:.1f} mm²"
+            for layer, (own, ref) in verdict.smallest.items()
+        )
+        print(f"   reference print {reference}: every island at least its smallest ({smallest})")
+        return 0
+    for smaller in verdict:
+        island = smaller.island
+        print(
+            f"WARN {part}: layer {island.layer} {island.body}: {island.area:.1f} mm², "
+            f"below {reference}'s {smaller.reference_area:.1f} mm²",
+            file=sys.stderr,
+        )
     return 0
 
 

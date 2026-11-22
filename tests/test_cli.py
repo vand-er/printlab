@@ -39,3 +39,24 @@ def test_build_is_quiet_within_budget_or_without_one(cube_part, capsys):
     cube_part()
     assert cli.main(["build", "cube"]) == 0
     assert "WARN" not in capsys.readouterr().err
+
+
+def _exit_code(argv: list[str]) -> int:
+    try:
+        return cli.main(argv)
+    except SystemExit as stop:
+        return stop.code
+
+
+def test_reference_without_slice_check_or_slice_fails_clearly(cube_part, capsys):
+    cube_part()
+
+    assert _exit_code(["build", "cube", "--reference", "cube"]) != 0
+    assert "--reference needs --slice-check or --slice" in capsys.readouterr().err
+
+
+def test_reference_naming_an_unknown_part_fails_clearly(cube_part, capsys):
+    cube_part()
+
+    assert _exit_code(["build", "cube", "--slice-check", "--reference", "nothing"]) != 0
+    assert "--reference: no part named 'nothing'" in capsys.readouterr().err
