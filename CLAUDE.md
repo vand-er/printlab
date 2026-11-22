@@ -32,6 +32,7 @@ src/printlab/cli.py           the `printlab` command: build, list
 src/printlab/profiles.py      resolve(): Bambu's system profiles as Bambu Studio resolves them; filament()
 src/printlab/slicing.py       slice_part(): slice with the Bambu Studio CLI, check the output, return a SliceReport
 src/printlab/islands.py       first_layer_islands(): the first layers' islands from the G-code, named by body
+src/printlab/reference.py     compare_first_layers(): a part's first layers against a reference print's
 ```
 
 `tests/test_layout.py` checks this block names every module.
