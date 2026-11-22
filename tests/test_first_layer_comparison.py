@@ -1,7 +1,7 @@
 """A part's first layers compared with a reference print's, on slice reports built in code."""
 
 from printlab.islands import Island
-from printlab.reference import Invalid, Passed, Smaller, compare_first_layers
+from printlab.reference import Invalid, Passed, Smaller, Warned, compare_first_layers
 from printlab.slicing import SliceReport
 
 SETTINGS = {
@@ -45,7 +45,7 @@ def test_an_island_smaller_than_the_reference_s_smallest_in_its_layer_warns_with
     part = _report(_island(1, 80.0, "Cradle"), _island(1, 9.8, "cap 3"), _island(2, 9.8, "cap 3"))
     reference = _report(_island(1, 12.1), _island(1, 30.0), _island(2, 5.0))
 
-    assert compare_first_layers(part, reference) == (Smaller(_island(1, 9.8, "cap 3"), 12.1),)
+    assert compare_first_layers(part, reference) == Warned((Smaller(_island(1, 9.8, "cap 3"), 12.1),))
 
 
 def test_islands_at_least_the_reference_s_smallest_pass():

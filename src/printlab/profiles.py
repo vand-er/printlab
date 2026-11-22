@@ -1,6 +1,7 @@
 """Bambu's system profiles, resolved as Bambu Studio's preset bundle resolves them (ADR 0004).
 
-Reads only `%APPDATA%\\BambuStudio\\system\\BBL`, never the install folder, and never writes there.
+Reads only `%APPDATA%\\BambuStudio\\system\\BBL`, never the install folder, and the user's own presets
+beside it; never writes there.
 """
 
 import json
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 SYSTEM = Path(os.environ.get("APPDATA", "")) / "BambuStudio" / "system" / "BBL"
+USER = SYSTEM.parents[1] / "user"
 
 Kind = Literal["machine", "process"]
 
@@ -48,6 +50,10 @@ def resolve(kind: Kind, name: str, root: Path = SYSTEM) -> dict:
     return settings
 
 
-def filament(path: Path) -> bytes:
-    """The user's filament preset, unchanged."""
-    return Path(path).read_bytes()
+def filament_preset(name: str, root: Path = USER) -> Path:
+    """The user's own Bambu Studio filament preset file, by name."""
+    found = [*root.glob(f"*/filament/base/{name}.json"), *root.glob(f"*/filament/{name}.json")]
+    if len(found) != 1:
+        where = "not found" if not found else f"found {len(found)} times"
+        raise ProfileError(f"filament preset {name!r} {where} under {root}")
+    return found[0]

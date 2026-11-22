@@ -113,11 +113,11 @@ def main(argv: list[str] | None = None) -> int:
 def _check_reference(part: str, report, reference: str) -> int:
     """Slice the reference print fresh, from its PETG STL only, and compare the first layers."""
     try:
-        theirs = slice_part(read_slice_settings(reference, PARTS_DIR))
+        reference_report = slice_part(read_slice_settings(reference, PARTS_DIR))
     except (SliceError, SliceSettingsError) as problem:
         print(f"FAIL {part}: reference print {reference}: {problem}", file=sys.stderr)
         return 1
-    verdict = compare_first_layers(report, theirs)
+    verdict = compare_first_layers(report, reference_report)
     if isinstance(verdict, Invalid):
         print(
             f"FAIL {part}: first-layer settings differ from {reference}'s in {', '.join(verdict.settings)}",
@@ -126,12 +126,12 @@ def _check_reference(part: str, report, reference: str) -> int:
         return 1
     if isinstance(verdict, Passed):
         smallest = "; ".join(
-            f"layer {layer} {own:.1f} mm² against {ref:.1f} mm²"
-            for layer, (own, ref) in verdict.smallest.items()
+            f"layer {layer} {part_area:.1f} mm² against {reference_area:.1f} mm²"
+            for layer, (part_area, reference_area) in verdict.smallest.items()
         )
         print(f"   reference print {reference}: every island at least its smallest ({smallest})")
         return 0
-    for smaller in verdict:
+    for smaller in verdict.smaller:
         island = smaller.island
         print(
             f"WARN {part}: layer {island.layer} {island.body}: {island.area:.1f} mm², "
@@ -144,9 +144,9 @@ def _check_reference(part: str, report, reference: str) -> int:
 def _print_islands(islands) -> None:
     """Each first layer's islands, by body and then largest first."""
     for layer in sorted({i.layer for i in islands}):
-        own = [i for i in islands if i.layer == layer]
-        print(f"   layer {layer} islands: {len(own)}")
-        for n, island in enumerate(own, 1):
+        in_layer = [i for i in islands if i.layer == layer]
+        print(f"   layer {layer} islands: {len(in_layer)}")
+        for n, island in enumerate(in_layer, 1):
             (x, y), area = island.centroid, island.area
             print(f"   layer {layer} island {n}: {island.body}, {area:.1f} mm² at x {x:.1f}, y {y:.1f}")
 

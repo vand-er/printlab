@@ -6,13 +6,14 @@ islands, and a brim joins the island it surrounds. An island is named by the bod
 """
 
 import math
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
 from build123d import Part
 from scipy import ndimage
+
+from printlab.gcode import extrusions
 
 FIRST_LAYERS = 3  # how many layers from the bed up are reported
 GRID_MM = 0.05  # pitch of the grid the paths are rasterised onto
@@ -32,13 +33,8 @@ BED_TEMP_KEYS = {
     "Supertack Plate": "supertack_plate_temp_initial_layer",
 }  # fmt: skip
 
-CHANGE_LAYER = "; CHANGE_LAYER"
-FEATURE = "; FEATURE: "
-LINE_WIDTH = "; LINE_WIDTH: "
 SKIPPED = ("Custom",)  # start, end and timelapse G-code, not part of any island
 BRIM = "Brim"
-MOVE = re.compile(r"^G([0-3]) ")
-WORD = re.compile(r"([XYZEIJ])(-?[\d.]+)")
 
 
 @dataclass(frozen=True)
@@ -102,31 +98,22 @@ def first_layer_islands(
 
 def _layer_paths(gcode: str, layers: int) -> list[list[tuple[float, float, float, float, float, bool]]]:
     """Each layer's extruded segments: x0, y0, x1, y1, line width, and whether it is brim."""
-    out: list[list] = []
-    x = y = 0.0
-    width, feature = 0.0, ""
-    for line in gcode.splitlines():
-        if line.startswith(CHANGE_LAYER):
-            if len(out) == layers:
-                break
-            out.append([])
-        elif line.startswith(FEATURE):
-            feature = line.removeprefix(FEATURE).strip()
-        elif line.startswith(LINE_WIDTH):
-            width = float(line.removeprefix(LINE_WIDTH))
-        elif move := MOVE.match(line):
-            words = {k: float(v) for k, v in WORD.findall(line.split(";")[0])}
-            end = (words.get("X", x), words.get("Y", y))
-            if out and words.get("E", 0) > 0 and feature not in SKIPPED:
-                points = [(x, y), *_arc((x, y), end, words, move[1])] if move[1] in "23" else [(x, y), end]
-                out[-1] += [(*u, *v, width, feature == BRIM) for u, v in zip(points, points[1:]) if u != v]
-            x, y = end
+    out: list[list] = [[] for _ in range(layers)]
+    for move in extrusions(gcode):
+        if move.layer > layers:
+            break
+        if move.layer and move.feature not in SKIPPED:
+            start, end = move.start, move.end
+            points = [start, *_arc(start, end, move.centre, move.kind)] if move.kind in "23" else [start, end]
+            out[move.layer - 1] += [
+                (*u, *v, move.width, move.feature == BRIM) for u, v in zip(points, points[1:]) if u != v
+            ]
     return out
 
 
-def _arc(start, end, words, kind) -> list[tuple[float, float]]:
-    """Points along a G2 (clockwise) or G3 arc from start to end, centred at start + (I, J)."""
-    cx, cy = start[0] + words.get("I", 0), start[1] + words.get("J", 0)
+def _arc(start, end, centre, kind) -> list[tuple[float, float]]:
+    """Points along a G2 (clockwise) or G3 arc from start to end, centred at start + centre."""
+    cx, cy = start[0] + centre[0], start[1] + centre[1]
     r = math.hypot(start[0] - cx, start[1] - cy)
     a0 = math.atan2(start[1] - cy, start[0] - cx)
     a1 = math.atan2(end[1] - cy, end[0] - cx)

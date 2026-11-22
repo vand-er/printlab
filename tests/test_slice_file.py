@@ -42,19 +42,7 @@ def temp_dir(tmp_path, monkeypatch):
     return folder
 
 
-def _bambu_ready() -> bool:
-    try:
-        slicing.bambu_studio()
-        slicing.filament_preset(FILAMENT)
-    except slicing.SliceError:
-        return False
-    return profiles.SYSTEM.is_dir()
-
-
-def real_slicer(test):
-    """Runs the real slicer: slow, and skipped where Bambu Studio is not set up."""
-    absent = pytest.mark.skipif(not _bambu_ready(), reason="Bambu Studio, its profiles or the preset absent")
-    return pytest.mark.slow(absent(test))
+real_slicer = pytest.mark.real_slicer
 
 
 def _sliced(folder):

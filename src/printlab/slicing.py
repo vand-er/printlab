@@ -9,7 +9,6 @@ sliced output against Bambu's originals, and returns a `SliceReport`. Nothing sl
 import json
 import math
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -23,6 +22,7 @@ import trimesh
 from build123d import Part
 
 from printlab import islands, profiles
+from printlab.gcode import extrusions
 from printlab.islands import Island
 from printlab.slice_settings import SliceSettings
 
@@ -42,8 +42,8 @@ BED_KEYS = ("printable_area", "bed_exclude_area")
 # AMS drying settings, one value per AMS model, which the output trims to one; they never reach the G-code.
 AMS_DRYING = "filament_dev_"
 # Grams from the plate metadata must match its filament length at the preset's density, within rounding.
-GRAMS_TOLERANCE = 0.02
-GRAMS_TOLERANCE_REL = 0.01
+GRAMS_TOLERANCE_G = 0.02
+GRAMS_TOLERANCE_FRACTION = 0.01
 # Support extrusions closer than this grid pitch belong to one support region.
 SUPPORT_CELL_MM = 2.0
 PRESET_LABELS = {"type", "name", "inherits", "from", "print_settings_id", "version"}
@@ -79,31 +79,20 @@ def bambu_studio() -> Path:
     return path
 
 
-def filament_preset(name: str) -> Path:
-    """The user's own Bambu Studio filament preset file, by name."""
-    user = profiles.SYSTEM.parents[1] / "user"
-    found = [*user.glob(f"*/filament/base/{name}.json"), *user.glob(f"*/filament/{name}.json")]
-    if len(found) != 1:
-        where = "not found" if not found else f"found {len(found)} times"
-        raise SliceError(f"filament preset {name!r} {where} under {user}")
-    return found[0]
-
-
 def slice_part(
-    settings: SliceSettings, keep: Path | None = None, bodies: Mapping[str, Part] = {}
+    settings: SliceSettings, keep: Path | None = None, bodies: Mapping[str, Part] | None = None
 ) -> SliceReport:
     """Slice and check the part; with `keep`, copy the sliced file there once every check has passed.
 
     `bodies` are the bodies in the STL, by name; first-layer islands are named after them.
     """
     exe = bambu_studio()
-    filament_path = filament_preset(settings.filament)
     try:
+        raw_filament = profiles.filament_preset(settings.filament).read_bytes()
         machine = profiles.resolve("machine", MACHINE)
         process = _process(settings.process)
     except profiles.ProfileError as problem:
         raise SliceError(str(problem)) from problem
-    raw_filament = profiles.filament(filament_path)
     filament = json.loads(raw_filament.decode("utf-8-sig"))
     if not settings.stl.is_file():
         raise SliceError(f"no STL to slice at {settings.stl}")
@@ -115,7 +104,7 @@ def slice_part(
             grams, seconds = _plate_numbers(archive.read("Metadata/slice_info.config"), filament)
             gcode = archive.read("Metadata/plate_1.gcode").decode("utf-8")
         offset = _bed_offset(result, settings.stl, config)
-        footprints = {name: islands.footprint(body) for name, body in bodies.items()}
+        footprints = {name: islands.footprint(body) for name, body in (bodies or {}).items()}
         report = SliceReport(
             grams, seconds, _supports(gcode, offset),
             islands.first_layer_islands(gcode, offset, footprints), islands.first_layer_settings(config),
@@ -227,7 +216,7 @@ def _plate_numbers(slice_info: bytes, filament: dict) -> tuple[float, float]:
     density = float(filament["filament_density"][0])
     radius = float(filament["filament_diameter"][0]) / 2
     expected = metres * math.pi * radius**2 * density  # 1 m of filament per mm² of section is 1 cm³
-    if abs(grams - expected) > GRAMS_TOLERANCE + GRAMS_TOLERANCE_REL * expected:
+    if abs(grams - expected) > GRAMS_TOLERANCE_G + GRAMS_TOLERANCE_FRACTION * expected:
         raise SliceError(f"sliced {grams} g does not match {metres} m of filament at {density} g/cm³")
     return grams, seconds
 
@@ -243,25 +232,13 @@ def _bed_offset(result: dict, stl: Path, config: dict) -> tuple[float, float]:
     return float(low[0]) - box["x"] + ex, float(low[1]) - box["y"] + ey
 
 
-FEATURE = "; FEATURE: "
-MOVE = re.compile(r"^G[0-3] ")
-WORD = re.compile(r"([XYZE])(-?[\d.]+)")
-
-
 def _supports(gcode: str, offset: tuple[float, float]) -> tuple[SupportRegion, ...]:
     """Support regions from the G-code's own feature markers, not from whether supports were enabled."""
     cells: dict[tuple[int, int], list[float]] = {}
-    x = y = z = 0.0
-    support = False
-    for line in gcode.splitlines():
-        if line.startswith(FEATURE):
-            support = line.removeprefix(FEATURE).startswith("Support")
-        elif MOVE.match(line):
-            words = dict(WORD.findall(line.split(";")[0]))
-            x, y, z = (float(words.get(k, v)) for k, v in zip("XYZ", (x, y, z)))
-            if support and float(words.get("E", 0)) > 0:
-                cell = (math.floor(x / SUPPORT_CELL_MM), math.floor(y / SUPPORT_CELL_MM))
-                cells.setdefault(cell, []).append(z)
+    for move in extrusions(gcode):
+        if move.feature.startswith("Support"):
+            cell = tuple(math.floor(v / SUPPORT_CELL_MM) for v in move.end)
+            cells.setdefault(cell, []).append(move.z)
     regions = []
     while cells:
         stack, group = [next(iter(cells))], {}

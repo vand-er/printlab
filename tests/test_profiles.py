@@ -12,11 +12,13 @@ X1C = "Bambu Lab X1 Carbon 0.4 nozzle"
 installed = pytest.mark.skipif(not BBL.is_dir(), reason="Bambu Studio system profiles not installed")
 
 
-def test_filament_preset_comes_back_byte_for_byte(tmp_path):
-    raw = '{\r\n  "from": "User",\r\n  "name": "Overture PETG é",\t"nozzle_temperature": ["240"] }\n'
-    preset = tmp_path / "filament.json"
-    preset.write_bytes(raw.encode("utf-8-sig"))
-    assert profiles.filament(preset) == raw.encode("utf-8-sig")
+def test_filament_preset_is_found_by_name_under_the_user_s_folder(tmp_path):
+    preset = tmp_path / "80784227" / "filament" / "base" / "Overture PETG.json"
+    preset.parent.mkdir(parents=True)
+    preset.write_text("{}", encoding="utf-8")
+    assert profiles.filament_preset("Overture PETG", root=tmp_path) == preset
+    with pytest.raises(profiles.ProfileError, match="'Other' not found"):
+        profiles.filament_preset("Other", root=tmp_path)
 
 
 def test_missing_profile_names_the_file_it_looked_for(tmp_path):

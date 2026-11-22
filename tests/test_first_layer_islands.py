@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from build123d import Box, Pos
 
-from printlab import cli, islands, profiles, slicing
+from printlab import cli, islands, slicing
 
 FILAMENT = "Overture PETG transparent @Bambu Lab X1 Carbon 0.4 nozzle"
 SLICE_BLOCK = """
@@ -21,20 +21,7 @@ stl: out/{name}.stl
 ISLAND = re.compile(r"^ +layer (\d+) island \d+: (.+), ([\d.]+) mm² at x (-?[\d.]+), y (-?[\d.]+)$")
 
 
-def _bambu_ready() -> bool:
-    try:
-        slicing.bambu_studio()
-        slicing.filament_preset(FILAMENT)
-    except slicing.SliceError:
-        return False
-    return profiles.SYSTEM.is_dir()
-
-
-# Every test here runs the real slicer: slow, and skipped where Bambu Studio is not set up.
-pytestmark = [
-    pytest.mark.slow,
-    pytest.mark.skipif(not _bambu_ready(), reason="Bambu Studio, its profiles or the preset absent"),
-]
+pytestmark = pytest.mark.real_slicer
 
 
 @pytest.fixture
