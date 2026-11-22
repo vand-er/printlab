@@ -97,24 +97,26 @@ def diameters_along(body, axis):
     }
 
 
-# Ticket #20: the Pin strip's provisional middle sizes, until it is printed and judged.
-PRESS = 1.85  # mm press fit, vertical and horizontal alike
-CLEARANCE = 2.15  # mm clearance
+# The user's picks from the printed Pin strip.
+PRESS_VERTICAL, PRESS_HORIZONTAL = 2.0, 1.85  # mm press fit
+CLEARANCE = 2.05  # mm clearance
 
 
 def test_each_pin_hole_keeps_its_size_after_the_edge_breaks(printed):
     params = model.Params()
-    assert (params.pin_press_hole_vertical, params.pin_press_hole_horizontal) == (PRESS, PRESS)
+    assert (params.pin_press_hole_vertical, params.pin_press_hole_horizontal) == (
+        PRESS_VERTICAL, PRESS_HORIZONTAL
+    )
     assert params.pin_clearance_hole == CLEARANCE
     # Press fits: the Lever and the caps print flat, so vertical holes; the collar stubs'
     # knuckles stand vertical; the Cradle lug and the Cart collar's ear print their holes
     # sideways (along X as built, laid on the bed).
-    assert PRESS in hole_diameters(printed["lever"])
+    assert PRESS_VERTICAL in hole_diameters(printed["lever"])
     for cap in CAPS:
-        assert hole_diameters(printed[cap]) == [PRESS], cap
+        assert hole_diameters(printed[cap]) == [PRESS_VERTICAL], cap
     for body in ("cradle", "cart-body"):
-        assert PRESS in diameters_along(printed[body], 0), body
-        assert PRESS in diameters_along(printed[body], 2), body
+        assert PRESS_HORIZONTAL in diameters_along(printed[body], 0), body
+        assert PRESS_VERTICAL in diameters_along(printed[body], 2), body
     # Clearance: the Lever on the pivot Pin, the Link on both its Pins, the Doors on theirs.
     assert CLEARANCE in hole_diameters(printed["lever"])
     assert hole_diameters(printed["link"]) == [CLEARANCE]
@@ -180,7 +182,7 @@ def test_assembled_has_every_pin_and_cap(pose, closed, opened):
     assert set(bodies) == {*BODIES, *PINS}
 
 
-PIN_CLEARANCE = 0.2  # mm a side, ticket #20: a 1.75 mm Pin in the 2.15 mm clearance hole
+PIN_CLEARANCE = 0.15  # mm a side: a 1.75 mm Pin in the 2.05 mm clearance hole
 TURNS_IN = {  # spec #18, "Which part a Pin presses into": (turns in, presses into)
     "pin-battery": ("battery-door", "cradle"),
     "pin-cart": ("cart-door", "cart-body"),
@@ -451,6 +453,17 @@ def is_ledge(body, x, y, z):
     )
 
 
+@pytest.mark.parametrize("facets", range(12, 21))
+def test_battery_door_keeps_out_of_its_pin_at_any_facet_count(facets):
+    # At 14 and 18 facets OCC once left the web inside the Pin's column, silently.
+    params = replace(model.Params(), knuckle_facets=facets)
+    bodies = model.build(params, "closed")
+    for name in ("battery-door", "cradle"):
+        assert check_part(bodies[name]).ok, (name, check_part(bodies[name]).problems)
+    assert not (bodies["battery-door"] & bodies["pin-battery"]).solids()
+    assert not (bodies["battery-door"] & bodies["cradle"]).solids()
+
+
 POSES = ("print", "closed", "open")  # as printed first
 
 
@@ -517,6 +530,7 @@ def test_no_load_bearing_wall_is_under_the_minimum(closed):
     for field in ("wall", "knuckle_wall", "carriage_wall", "cradle_back_depth", "lug_width"):
         assert getattr(params, field) >= MIN_WALL, field
     for hole in (params.pin_press_hole_vertical, params.pin_clearance_hole):
-        assert model.knuckle_radius(params) - hole / 2 >= MIN_WALL
-    # A cap only keeps a part on its Pin and carries no load: a 1.0 mm wall at the defaults.
-    assert model.cap_radius(params) - params.pin_press_hole_vertical / 2 == pytest.approx(1.0)
+        assert model.knuckle_radius(params) - hole / 2 >= MIN_WALL - 1e-9
+    # A cap only keeps a part on its Pin and carries no load: a 0.925 mm wall at the defaults,
+    # still two perimeters.
+    assert model.cap_radius(params) - params.pin_press_hole_vertical / 2 == pytest.approx(0.925)

@@ -52,6 +52,10 @@ _Avoid_: Catch, strike
 The separate rod pushed through a joint's knuckles after printing, which the joint turns on.
 _Avoid_: Axle, rod
 
+**Pin cap**:
+The printed disc pressed onto a linkage Pin's outer end, which keeps the Pin from sliding out.
+_Avoid_: Retainer, washer
+
 **Lever**:
 The part that, flipped past centre with a snap, pulls the cart collar down a fixed distance and so sets the preload. It is flipped last and released first.
 _Avoid_: Cam, buckle, toggle
@@ -73,6 +77,14 @@ _Avoid_: Test print, gauge
 **Lever strip**:
 The second print: three small clamps built at the chosen bores, one per stroke, so the stroke is chosen on the real cart and battery.
 _Avoid_: Stroke test
+
+**Pin strip**:
+The print that chooses the Pin's holes: rows of vertical and horizontal holes in a PETG strip, judged by hand with offcuts of the filament that become the Pins.
+_Avoid_: Pin gauge
+
+**Gap strip**:
+Battery collar samples with print-in-place hinges at four gaps, to choose the smallest gap that turns and snaps.
+_Avoid_: Gap test
 
 ### Checking and printing
 

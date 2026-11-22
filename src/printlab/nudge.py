@@ -28,12 +28,14 @@ def nudged(params, field: str, factor: float):
 
 
 def numeric_fields(params_type) -> list[str]:
-    """The names of the fields whose defaults are numbers or tuples of numbers."""
+    """The names of the fields whose defaults are numbers or tuples of numbers, less those
+    the type lists in its `FIXED` (values set by a print or the filament, not by design)."""
     def numeric(v):
         return isinstance(v, (int, float)) or (
             isinstance(v, tuple) and all(isinstance(x, (int, float)) for x in v)
         )
-    return [f.name for f in fields(params_type) if numeric(f.default)]
+    fixed = getattr(params_type, "FIXED", frozenset())
+    return [f.name for f in fields(params_type) if numeric(f.default) and f.name not in fixed]
 
 
 def fit_problems(

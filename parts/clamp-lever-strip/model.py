@@ -19,9 +19,10 @@ Cradle's back.
 
 from dataclasses import dataclass
 
-from build123d import Part, Pos, Text, extrude
+from build123d import Part, Pos, extrude
 
 from printlab import clamp as clamps
+from printlab import font
 from printlab.checks import FitPair
 from printlab.clamp import (  # noqa: F401  cap_radius and knuckle_radius, for the tests
     ClampParams,
@@ -54,7 +55,7 @@ def label_tag(p: Params, stroke: float) -> Part:
     _, front = cradle_back_y(p)
     hw = carriage_half_width(p)
     tag = box(-hw - p.tag_length, -hw + EMBED, front - p.tag_depth, front, p.tag_thickness)
-    text = Text(f"{stroke:.1f}", p.label_size)
+    text = font.text(f"{stroke:.1f}", p.label_size)
     label = Pos(-hw - p.tag_length / 2, front - p.tag_depth / 2, p.tag_thickness) * extrude(
         text, p.label_relief
     )

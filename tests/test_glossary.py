@@ -1,7 +1,9 @@
 """Code names use GLOSSARY.md's terms, never the words it lists under _Avoid_."""
 
 import ast
+import io
 import re
+import tokenize
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -10,7 +12,10 @@ ROOT = Path(__file__).parent.parent
 # ring wall, the brass base, joints between bodies.
 ALLOWED = {"arm", "ring", "base", "joint"}
 # Pipeline modules name rendering and files, not the domain.
-NOT_DOMAIN = {"checks.py", "export.py", "cli.py", "nudge.py", "parts.py"}
+# _Avoid_ words prose uses in another sense: the kernel's modelling tolerances, the hole-gauge
+# part's name, the pod's glass tank.
+PROSE_ALLOWED = {"tolerances", "gauge", "tank"}
+NOT_DOMAIN = {"checks.py", "export.py", "cli.py", "nudge.py", "parts.py", "font.py"}
 
 
 def avoided_terms() -> set[tuple[str, ...]]:
@@ -57,3 +62,29 @@ def test_no_identifier_uses_an_avoided_glossary_word():
                 if any(tuple(parts[i : i + n]) == term for i in range(len(parts) - n + 1)):
                     found.append(f"{path.relative_to(ROOT)}: {name} ({' '.join(term)})")
     assert not found, sorted(found)
+
+
+def prose(path: Path) -> str:
+    """A part's print.md whole, or a module's docstrings and comments."""
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".md":
+        return text
+    chunks = [tok.string for tok in tokenize.generate_tokens(io.StringIO(text).readline)
+              if tok.type == tokenize.COMMENT]
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)):
+            chunks.append(ast.get_docstring(node) or "")
+    return "\n".join(chunks)
+
+
+def test_no_prose_uses_an_avoided_glossary_word():
+    terms = {t for t in avoided_terms() if " ".join(t) not in PROSE_ALLOWED}
+    found = []
+    src = [p for p in ROOT.glob("src/printlab/*.py") if p.name not in NOT_DOMAIN]
+    for path in sorted([*src, *ROOT.glob("parts/*/*.py"), *ROOT.glob("parts/*/print.md")]):
+        parts = [w.lower() for w in re.findall(r"[A-Za-z]+", prose(path))]
+        for term in terms:
+            n = len(term)
+            if any(tuple(parts[i : i + n]) == term for i in range(len(parts) - n + 1)):
+                found.append(f"{path.relative_to(ROOT)}: {' '.join(term)}")
+    assert not found, sorted(set(found))

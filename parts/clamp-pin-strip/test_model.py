@@ -120,8 +120,8 @@ def test_labels_are_buried_in_their_rows_bottom():
         strip = bodies()[name.split("-")[1]]
         box = label.bounding_box()
         assert box.min.Z == pytest.approx(0, abs=1e-6), name
-        # Curves stand off less than square edges, by how tight the font's curves are (Arial on
-        # Windows, a substitute in CI), so the label only has to stay clear of the strip.
+        # The pocket is the label shifted eight ways, so tight curves stand off less than
+        # square edges: the label only has to stay clear of the strip.
         clear = strip.distance_to(label)
         assert 0 < clear <= LABEL_CLEARANCE + 1e-4, (name, clear)
         raised = Pos(0, 0, box.max.Z + LABEL_CLEARANCE) * label  # its footprint, just above
@@ -173,13 +173,13 @@ def test_survives_plus_minus_ten_percent():
     assert not broken, broken
 
 
-def test_every_part_reads_the_pins_provisional_sizes():
-    # Ticket #20: the middle sizes, until the Pin strip is printed and judged.
+def test_every_part_reads_the_pin_sizes_picked_from_this_strip():
+    # The user's picks: 1.95 jammed partway and 2.05 was loose, so vertical press is between.
     p = CollarParams()
     assert p.pin_stock_diameter == 1.75  # a PETG filament offcut
-    assert p.pin_press_hole_vertical == 1.85
+    assert p.pin_press_hole_vertical == 2.0
     assert p.pin_press_hole_horizontal == 1.85
-    assert p.pin_clearance_hole == 2.15
+    assert p.pin_clearance_hole == 2.05
     assert p.pin_lead_in == 0.3
     assert p.pin_lead_in_angle == 45.0  # a 0.3 mm 45° lead-in
     assert p.pin_roof_angle == 45.0  # the horizontal holes' 45° pointed roof

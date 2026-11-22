@@ -11,6 +11,7 @@ above) about the hinge axis. Everything stands on z = 0.
 import math
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import ClassVar
 
 from build123d import Align, Axis, Box, Cylinder, Part, Plane, Polygon, Pos, RegularPolygon, extrude
 
@@ -43,6 +44,13 @@ class Slide(StrEnum):
 class CollarParams:
     """The sizes every collar builder reads; each part's `Params` extends it."""
 
+    # Set by the filament and the printed Pin strip, not by design: the nudge audit leaves
+    # them, since 10 % of a Pin hole is wider than the whole fit window the strip measured.
+    FIXED: ClassVar[frozenset[str]] = frozenset({
+        "pin_stock_diameter", "pin_press_hole_vertical", "pin_press_hole_horizontal",
+        "pin_clearance_hole",
+    })
+
     fdm_offset: float = 0.2  # mm added to each bore; FDM holes print undersize
     wall: float = 1.3  # mm, collar ring wall (load-bearing)
     gap: float = 0.3  # mm, print-in-place clearance everywhere
@@ -53,12 +61,12 @@ class CollarParams:
     knuckle_wall: float = 1.2  # mm, ring around each pin (load-bearing)
     knuckle_cone: float = 45.0  # degrees from vertical; spiked knuckle ends print unsupported
     knuckle_facets: int = 16  # facets around each knuckle spike
-    # Pin: a PETG filament offcut pushed through a joint (ADR 0003). The holes are the Pin
-    # strip's provisional middle sizes until it is printed and judged.
+    # Pin: a PETG filament offcut pushed through a joint (ADR 0003). The holes are the user's
+    # picks from the printed Pin strip.
     pin_stock_diameter: float = 1.75  # mm, the filament the Pin is cut from
-    pin_press_hole_vertical: float = 1.85  # mm, press fit in a hole printed vertical
+    pin_press_hole_vertical: float = 2.0  # mm, press fit in a hole printed vertical
     pin_press_hole_horizontal: float = 1.85  # mm, press fit in a hole printed along the bed
-    pin_clearance_hole: float = 2.15  # mm, the Pin turns freely
+    pin_clearance_hole: float = 2.05  # mm, the Pin turns freely
     pin_lead_in: float = 0.3  # mm each Pin hole's mouth is widened, a side
     pin_lead_in_angle: float = 45.0  # degrees from the hole's axis: each lead-in's chamfer
     pin_roof_angle: float = 45.0  # degrees from vertical: the pointed roof of a hole along the bed
@@ -119,12 +127,15 @@ def _below_spike(p, apex: float) -> Part:
 
     Knuckle ends are these spikes rather than flat, so each overhang is at most
     `knuckle_cone` from vertical. Facets, not true cones: the distance checks are
-    exact on planes but not on cones.
+    exact on planes but not on cones. A ridge, not a facet, faces the split (+Y): with a
+    facet there, OCC's booleans on the Door silently dropped or kept whole pieces.
     """
     slope = math.tan(math.radians(p.knuckle_cone))  # mm inward per mm up
     bottom = -1.0
     rise = (apex - bottom) - SPIKE_TIP / slope
-    base = RegularPolygon(SPIKE_TIP + rise * slope, p.knuckle_facets, major_radius=False)
+    base = RegularPolygon(
+        SPIKE_TIP + rise * slope, p.knuckle_facets, major_radius=False, rotation=90
+    )
     return Pos(0, 0, bottom) * extrude(base, rise, taper=p.knuckle_cone)
 
 

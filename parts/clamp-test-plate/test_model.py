@@ -50,7 +50,7 @@ def test_prints_each_door_apart_from_its_stub_without_pins():
         assert bodies[a].distance_to(bodies[b]) > APART, (a, b)
 
 
-PIN_CLEARANCE = 0.2  # mm a side: a 1.75 mm Pin in the 2.15 mm clearance hole
+PIN_CLEARANCE = 0.15  # mm a side: a 1.75 mm Pin in the 2.05 mm clearance hole
 
 
 def hinges(bodies):
@@ -208,7 +208,7 @@ def test_no_load_bearing_wall_is_under_the_minimum():
         assert min(arm.bounding_box().size.X, arm.bounding_box().size.Y) >= MIN_WALL
     # Round each Pin hole, the press fit's and the clearance's (spec #18).
     for hole in (params.pin_press_hole_vertical, params.pin_clearance_hole):
-        assert model.knuckle_radius(params) - hole / 2 >= MIN_WALL
+        assert model.knuckle_radius(params) - hole / 2 >= MIN_WALL - 1e-9
 
 
 POSES = (("print", "bottom"), ("closed", "bottom"), ("open", "top"))  # as printed first

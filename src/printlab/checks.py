@@ -67,11 +67,9 @@ def check_fit(a: Part, b: Part, clearance: float) -> Report:
     # Rattle test: shift b by clearance + delta toward a; a snug fit must collide.
     toward_a = (point_a - point_b).normalized()
     shifted = Pos(toward_a * (clearance + RATTLE_DELTA)) * b
-    try:
-        collides = bool((a & shifted).solids())
-    except ValueError:  # OCC's boolean can fail on near-coincident faces; distance cannot
-        collides = a.distance_to(shifted) == 0
-    if not collides:
+    # Distance, not the boolean: OCC's intersection can miss a real overlap without raising,
+    # on near-coincident faces.
+    if a.distance_to(shifted) > FIT_TOLERANCE:
         report.problems.append(
             f"rattle: gap {gap:.3f} mm is looser than the {clearance:.3f} mm clearance"
             f" + {RATTLE_DELTA} mm"
