@@ -87,6 +87,17 @@ def problems(
     return found
 
 
+def workers() -> int:
+    """Processes for an audit: one per CPU, or PRINTLAB_WORKERS to leave the PC usable.
+
+    Under pytest-xdist every worker is already a process; one pool per CPU each would start
+    CPUs² processes, so it is 1 there. Run the slow audits with -n 0 to use the pool.
+    """
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        return 1
+    return int(os.environ.get("PRINTLAB_WORKERS") or os.cpu_count())
+
+
 def audit(
     part: str, pairs: tuple[FitPair, ...] | str,
     poses: tuple[str | tuple, ...],
@@ -95,9 +106,6 @@ def audit(
     """{(field, factor): problems} for every numeric field of the part's Params, or those `only`."""
     names = [f for f in numeric_fields(load_part(part).Params) if only is None or f in only]
     jobs = [(f, k) for f in names for k in FACTORS]
-    # Under pytest-xdist every worker is already a process; one pool per CPU each would
-    # start CPUs² processes. Run the slow audits with -n 0 to give the pool every CPU.
-    workers = 1 if os.environ.get("PYTEST_XDIST_WORKER") else os.cpu_count()
-    with ProcessPoolExecutor(workers) as pool:
+    with ProcessPoolExecutor(workers()) as pool:
         futures = {job: pool.submit(problems, part, *job, pairs, poses) for job in jobs}
         return {job: future.result() for job, future in futures.items()}
