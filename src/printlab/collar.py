@@ -127,12 +127,15 @@ def _below_spike(p, apex: float) -> Part:
 
     Knuckle ends are these spikes rather than flat, so each overhang is at most
     `knuckle_cone` from vertical. Facets, not true cones: the distance checks are
-    exact on planes but not on cones.
+    exact on planes but not on cones. A ridge, not a facet, faces the split (+Y): with a
+    facet there, OCC's booleans on the Door silently dropped or kept whole pieces.
     """
     slope = math.tan(math.radians(p.knuckle_cone))  # mm inward per mm up
     bottom = -1.0
     rise = (apex - bottom) - SPIKE_TIP / slope
-    base = RegularPolygon(SPIKE_TIP + rise * slope, p.knuckle_facets, major_radius=False)
+    base = RegularPolygon(
+        SPIKE_TIP + rise * slope, p.knuckle_facets, major_radius=False, rotation=90
+    )
     return Pos(0, 0, bottom) * extrude(base, rise, taper=p.knuckle_cone)
 
 

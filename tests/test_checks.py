@@ -1,4 +1,6 @@
-from build123d import Box, Cylinder, Pos
+from pathlib import Path
+
+from build123d import Box, Cylinder, Pos, import_brep
 
 from printlab.checks import X1C_BUILD_VOLUME, check_fit, check_part, hole_diameters
 
@@ -86,6 +88,15 @@ def test_pin_in_bore_at_clearance_passes_fit():
     pin = Cylinder(2.0, 10)
     knuckle = Cylinder(4.0, 10) - Cylinder(2.3, 10)
     report = check_fit(pin, knuckle, clearance=0.3)
+    assert report.ok, report.problems
+
+
+def test_snug_fit_passes_where_the_boolean_misses_the_overlap():
+    # The Clamp's crank cap and Link at wall x0.9, open: 0.300 mm apart at a 0.300 mm clearance.
+    # Shifted 0.35 mm together they touch, but OCC's intersection returns no solid, silently.
+    fixtures = Path(__file__).parent / "fixtures"
+    cap, link = (import_brep(str(fixtures / f"rattle-{n}.brep")) for n in ("cap-crank", "link"))
+    report = check_fit(cap, link, clearance=0.3)
     assert report.ok, report.problems
 
 

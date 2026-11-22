@@ -453,6 +453,17 @@ def is_ledge(body, x, y, z):
     )
 
 
+@pytest.mark.parametrize("facets", range(12, 21))
+def test_battery_door_keeps_out_of_its_pin_at_any_facet_count(facets):
+    # At 14 and 18 facets OCC once left the web inside the Pin's column, silently.
+    params = replace(model.Params(), knuckle_facets=facets)
+    bodies = model.build(params, "closed")
+    for name in ("battery-door", "cradle"):
+        assert check_part(bodies[name]).ok, (name, check_part(bodies[name]).problems)
+    assert not (bodies["battery-door"] & bodies["pin-battery"]).solids()
+    assert not (bodies["battery-door"] & bodies["cradle"]).solids()
+
+
 POSES = ("print", "closed", "open")  # as printed first
 
 
