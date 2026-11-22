@@ -11,6 +11,7 @@ Print it after the Test plate, once its bore picks are in `ClampParams`. It choo
 - **Orientation:** as exported. Each Cradle upright with its Cart collar on the rib above the Battery collar; the Doors on the bed in front; the Lever, three caps and the Link flat behind, each lead-in on top. Don't rotate.
 - **Print dialog:** flow calibration on; timelapse off.
 - **Expected:** about 14.5 g PETG; about 1.5 h (Bambu Studio's estimate is the real one).
+- **To start it from the phone:** [phone route](../../docs/phone-route.md).
 
 ```slice
 process: 0.20mm Standard @BBL X1C

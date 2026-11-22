@@ -2,13 +2,15 @@
 
 `slice_part(settings)` resolves the X1C machine settings and the process preset, takes the user's
 filament preset unchanged, slices the part's STL in a temp folder that is always deleted, checks the
-sliced output against Bambu's originals, and returns a `SliceReport`. Nothing sliced is kept.
+sliced output against Bambu's originals, and returns a `SliceReport`. Nothing sliced is kept unless
+`keep` names where the checked sliced file goes.
 """
 
 import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -87,8 +89,13 @@ def filament_preset(name: str) -> Path:
     return found[0]
 
 
-def slice_part(settings: SliceSettings, bodies: Mapping[str, Part] = {}) -> SliceReport:
-    """`bodies` are the bodies in the STL, by name; first-layer islands are named after them."""
+def slice_part(
+    settings: SliceSettings, keep: Path | None = None, bodies: Mapping[str, Part] = {}
+) -> SliceReport:
+    """Slice and check the part; with `keep`, copy the sliced file there once every check has passed.
+
+    `bodies` are the bodies in the STL, by name; first-layer islands are named after them.
+    """
     exe = bambu_studio()
     filament_path = filament_preset(settings.filament)
     try:
@@ -107,12 +114,15 @@ def slice_part(settings: SliceSettings, bodies: Mapping[str, Part] = {}) -> Slic
             _check_config(config, filament, settings)
             grams, seconds = _plate_numbers(archive.read("Metadata/slice_info.config"), filament)
             gcode = archive.read("Metadata/plate_1.gcode").decode("utf-8")
-    offset = _bed_offset(result, settings.stl, config)
-    footprints = {name: islands.footprint(body) for name, body in bodies.items()}
-    return SliceReport(
-        grams, seconds, _supports(gcode, offset),
-        islands.first_layer_islands(gcode, offset, footprints), islands.first_layer_settings(config),
-    )  # fmt: skip
+        offset = _bed_offset(result, settings.stl, config)
+        footprints = {name: islands.footprint(body) for name, body in bodies.items()}
+        report = SliceReport(
+            grams, seconds, _supports(gcode, offset),
+            islands.first_layer_islands(gcode, offset, footprints), islands.first_layer_settings(config),
+        )  # fmt: skip
+        if keep is not None:
+            shutil.copyfile(sliced, keep)
+    return report
 
 
 def _process(name: str) -> dict:

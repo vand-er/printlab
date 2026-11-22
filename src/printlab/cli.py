@@ -17,10 +17,16 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser("build", help="check and export a part")
     build.add_argument("part", choices=part_names())
-    build.add_argument(
+    slicing = build.add_mutually_exclusive_group()
+    slicing.add_argument(
         "--slice-check",
         action="store_true",
         help="slice with Bambu Studio and report grams, time and supports; keep no sliced file",
+    )
+    slicing.add_argument(
+        "--slice",
+        action="store_true",
+        help="as --slice-check, and keep the sliced file in out/ for the phone route (docs/phone-route.md)",
     )
     sub.add_parser("list", help="list parts")
     args = parser.parse_args(argv)
@@ -63,12 +69,15 @@ def main(argv: list[str] | None = None) -> int:
             f"WARN {args.part}: about {result.grams:.1f} g is over the {budget:g} g budget",
             file=sys.stderr,
         )
-    if args.slice_check:
+    if args.slice_check or args.slice:
+        # A stale sliced file never outlives a new slice, even one that fails.
+        keep = PARTS_DIR / args.part / "out" / f"{args.part}.gcode.3mf"
+        keep.unlink(missing_ok=True)
         try:
             settings = read_slice_settings(args.part, PARTS_DIR)
             # Only the bodies in the STL that is sliced, not those in a second filament's STL.
             sliced = {n: b for n, b in bodies.items() if not n.startswith(tuple(separate.values()))}
-            report = slice_part(settings, sliced)
+            report = slice_part(settings, keep if args.slice else None, sliced)
         except (SliceError, SliceSettingsError) as problem:
             print(f"FAIL {args.part}: {problem}", file=sys.stderr)
             return 1
@@ -82,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"   support {n}: x {x0:.0f} to {x1:.0f}, y {y0:.0f} to {y1:.0f}, z {z0:.1f} to {z1:.1f} mm"
             )
+        if args.slice:
+            print(f"   sliced file: {keep.relative_to(PARTS_DIR.parent)} (to print it: docs/phone-route.md)")
         _print_islands(report.islands)
     return 0
 
