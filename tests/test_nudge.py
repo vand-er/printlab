@@ -1,5 +1,6 @@
 """The nudge audit's fit checks within one pose, and which fields it nudges."""
 
+import os
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -8,6 +9,17 @@ from build123d import Box, Pos
 from printlab import nudge
 
 CLEARANCE = 0.3  # mm
+
+
+def test_workers_default_to_every_cpu_and_obey_the_cap(monkeypatch):
+    # A local slow audit took all 8 threads; PRINTLAB_WORKERS leaves the PC usable.
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    monkeypatch.delenv("PRINTLAB_WORKERS", raising=False)
+    assert nudge.workers() == os.cpu_count()
+    monkeypatch.setenv("PRINTLAB_WORKERS", "2")
+    assert nudge.workers() == 2
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
+    assert nudge.workers() == 1
 
 
 def test_fields_a_params_type_fixes_are_not_nudged():

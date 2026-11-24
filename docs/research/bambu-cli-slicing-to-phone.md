@@ -147,3 +147,4 @@ These checks are still automated, and ADR 0001 notes that automated checks "have
 - That Handy → device → Files can start a `.gcode.3mf` the user sent to the X1C's card, on the user's app version.
 - Whether a CLI-sliced file without `printer_model_id` triggers a printer-mismatch warning in Studio or on the printer.
 - Whether `--export-3mf` with an STL input works on 02.09.01.70 on Windows. This needs one supervised run by the user, which this research did not do.
+  - Checked 2026-11-21 (#30): it works. The user's filament preset has no `type` key (Studio takes it from the folder), and without one the CLI stops with return code -5, "The input preset file is invalid and can not be parsed". printlab adds only that label; every setting stays byte for byte. The output trims the per-AMS `filament_dev_*` drying lists to one value.

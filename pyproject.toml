@@ -7,6 +7,7 @@ dependencies = [
     "build123d>=0.10,<0.14",
     "trimesh>=4.0",
     "matplotlib>=3.8",
+    "scipy>=1.11",
 ]
 
 [project.scripts]
@@ -26,7 +27,7 @@ packages = ["src/printlab"]
 testpaths = ["tests", "parts"]
 # Parallel by default; pass -n 0 to run one test quickly.
 addopts = "--import-mode=importlib -m 'not slow' -n auto"
-markers = ["slow: minutes-long perturbation audits; run with -m slow -n 0 (nudge.audit pools the CPUs)"]
+markers = ["slow: perturbation audits and real-slicer tests; run with -m slow -n 0 (nudge.audit pools the CPUs)"]
 
 [tool.ruff]
 line-length = 110

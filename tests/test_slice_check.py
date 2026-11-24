@@ -1,0 +1,185 @@
+"""printlab build <part> --slice-check slices with the real Bambu Studio command line (ADR 0004)."""
+
+import json
+import re
+import tempfile
+from types import SimpleNamespace
+
+import pytest
+from build123d import Box, Part, Pos
+
+from printlab import cli, profiles, slicing
+
+SLICE_BLOCK = """
+```slice
+process: {process}
+filament: {filament}
+plate: Textured PEI Plate
+stl: out/{name}.stl
+```
+"""
+PROCESS = "0.20mm Standard @BBL X1C"
+FILAMENT = "Overture PETG transparent @Bambu Lab X1 Carbon 0.4 nozzle"
+
+
+@pytest.fixture
+def slice_part(tmp_path, monkeypatch):
+    """A fake part with a print.md that names how to slice it."""
+
+    def use(build=lambda: Box(10, 10, 10), name="cube", process=PROCESS, filament=FILAMENT):
+        part = SimpleNamespace(build=build)
+        parts = tmp_path / "parts"
+        (parts / name).mkdir(parents=True, exist_ok=True)
+        (parts / name / "print.md").write_text(
+            SLICE_BLOCK.format(process=process, filament=filament, name=name), encoding="utf-8"
+        )
+        monkeypatch.setattr(cli, "PARTS_DIR", parts)
+        monkeypatch.setattr(cli, "part_names", lambda: [name])
+        monkeypatch.setattr(cli, "load_part", lambda _: part)
+        return parts / name
+
+    return use
+
+
+real_slicer = pytest.mark.real_slicer
+
+
+@pytest.fixture
+def temp_dir(tmp_path, monkeypatch):
+    """Where the slicer's temp folders go, so a test can see that none is left behind."""
+    folder = tmp_path / "temp"
+    folder.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(folder))
+    return folder
+
+
+def _lines(out: str) -> dict[str, str]:
+    return dict(line.strip().split(": ", 1) for line in out.splitlines() if ": " in line)
+
+
+@real_slicer
+def test_slice_check_reports_grams_and_time_and_keeps_nothing(slice_part, temp_dir, capsys):
+    folder = slice_part()
+
+    assert cli.main(["build", "cube", "--slice-check"]) == 0
+    out = _lines(capsys.readouterr().out)
+    assert float(out["sliced grams"].removesuffix(" g")) > 0
+    assert int(out["sliced time"].split()[0]) > 0
+    assert not [p for p in folder.rglob("*") if p.name.endswith((".3mf", ".gcode", ".json"))]
+    assert list(temp_dir.iterdir()) == []
+
+
+@real_slicer
+def test_a_tampered_resolved_profile_fails_the_build_and_keeps_nothing(
+    slice_part, temp_dir, monkeypatch, capsys
+):
+    folder = slice_part()
+    resolve = profiles.resolve
+
+    def tampered(kind, name, **kw):
+        settings = resolve(kind, name, **kw)
+        if kind == "machine":
+            settings["machine_start_gcode"] += "\nM104 S300\n"
+        return settings
+
+    monkeypatch.setattr(profiles, "resolve", tampered)
+
+    assert cli.main(["build", "cube", "--slice-check"]) != 0
+    err = capsys.readouterr().err
+    assert err.startswith("FAIL cube: ") and "machine_start_gcode" in err
+    assert not [p for p in folder.rglob("*") if p.name.endswith((".3mf", ".gcode", ".json"))]
+    assert list(temp_dir.iterdir()) == []
+
+
+@pytest.fixture
+def inheriting_preset(tmp_path, monkeypatch):
+    """A user filament preset that, as Bambu Studio saves it, holds only what differs from its parent."""
+    user = tmp_path / "user"
+    folder = user / "80784227" / "filament"
+    folder.mkdir(parents=True)
+    preset = {"name": "PETG HF 245", "inherits": "Bambu PETG HF @BBL X1C", "from": "User",
+              "filament_settings_id": ["PETG HF 245"], "nozzle_temperature": ["245", "245"]}  # fmt: skip
+    (folder / "PETG HF 245.json").write_text(json.dumps(preset, indent=4), encoding="utf-8")
+    monkeypatch.setattr(profiles, "USER", user)
+    return "PETG HF 245"
+
+
+@real_slicer
+def test_a_filament_preset_is_checked_against_what_it_inherits_too(slice_part, inheriting_preset, capsys):
+    # The command line does not resolve a user preset's inherits (v02.09.01.70): it slices a default PLA.
+    slice_part(filament=inheriting_preset)
+
+    assert cli.main(["build", "cube", "--slice-check"]) != 0
+    err = capsys.readouterr().err
+    assert err.startswith("FAIL cube: ")
+    assert "nozzle_temperature_initial_layer" in err  # set only by the parent
+    assert "inherits Bambu PETG HF @BBL X1C" in err
+
+
+@pytest.fixture
+def supports_on(tmp_path, monkeypatch):
+    """A process preset in presets/ that turns supports on."""
+    presets = tmp_path / "presets"
+    presets.mkdir()
+    preset = {"type": "process", "name": "supports on", "inherits": "0.20mm Standard @BBL X1C",
+              "enable_support": "1"}  # fmt: skip
+    (presets / "supports on.json").write_text(json.dumps(preset), encoding="utf-8")
+    monkeypatch.setattr(slicing, "PRESETS_DIR", presets)
+    return "supports on"
+
+
+def _tee() -> Part:
+    """A 10 mm post at the origin under a 40 mm bar at 20 mm: its two arms overhang by 15 mm in x."""
+    post = Pos(0, 0, 10) * Box(10, 10, 20)
+    return post + Pos(0, 0, 21.5) * Box(40, 10, 3)
+
+
+@real_slicer
+def test_supports_are_reported_where_an_overhang_needs_them(slice_part, supports_on, capsys):
+    slice_part(build=_tee, process=supports_on)
+
+    assert cli.main(["build", "cube", "--slice-check"]) == 0
+    out = _lines(capsys.readouterr().out)
+    regions = [v for k, v in out.items() if k.startswith("support ")]
+    assert out["sliced supports"] == str(len(regions)) and regions
+    for region in regions:
+        x0, x1 = (float(v) for v in region.split(",")[0].removeprefix("x ").split(" to "))
+        assert x1 <= -4 or x0 >= 4, f"support under the post: {region}"  # the post spans x -5 to 5
+
+
+@real_slicer
+def test_a_bambu_studio_warning_prints_as_warn_and_the_slice_check_goes_on(slice_part, capsys):
+    slice_part(build=_tee)  # no supports under its overhanging arms
+
+    assert cli.main(["build", "cube", "--slice-check"]) == 0
+    captured = capsys.readouterr()
+    assert re.search(r"^WARN cube: Bambu Studio: .*floating cantilever", captured.err, re.M), captured.err
+    assert float(_lines(captured.out)["sliced grams"].removesuffix(" g")) > 0
+
+
+@real_slicer
+def test_a_plain_box_reports_no_supports(slice_part, supports_on, capsys):
+    slice_part(process=supports_on)
+
+    assert cli.main(["build", "cube", "--slice-check"]) == 0
+    assert _lines(capsys.readouterr().out)["sliced supports"] == "none"
+
+
+def test_build_without_the_flag_never_slices(slice_part, monkeypatch):
+    slice_part()
+    calls = []
+    monkeypatch.setattr(cli, "slice_part", lambda *a, **k: calls.append(a))
+
+    assert cli.main(["build", "cube"]) == 0
+    assert calls == []
+
+
+def test_bambu_studio_missing_gives_one_fail_line(slice_part, monkeypatch, tmp_path, capsys):
+    slice_part()
+    monkeypatch.setenv("PRINTLAB_BAMBU_STUDIO", str(tmp_path / "nowhere" / "bambu-studio.exe"))
+
+    assert cli.main(["build", "cube", "--slice-check"]) != 0
+    err = capsys.readouterr().err.splitlines()
+    assert len(err) == 1
+    assert err[0].startswith("FAIL cube: Bambu Studio not found")
+    assert "nowhere" in err[0]

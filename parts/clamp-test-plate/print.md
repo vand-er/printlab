@@ -11,6 +11,14 @@ Print it after the Pin strip, once its picks are in `CollarParams`. It chooses t
 - **Orientation:** as exported. Collars upright, each Door on the bed beside its stub. Don't rotate.
 - **Print dialog:** flow calibration on; timelapse off.
 - **Expected:** about 7.2 g PETG; about 1 h (Bambu Studio's estimate is the real one).
+- **To start it from the phone:** [phone route](../../docs/phone-route.md).
+
+```slice
+process: 0.20mm Standard @BBL X1C
+filament: Overture PETG transparent @Bambu Lab X1 Carbon 0.4 nozzle
+plate: Textured PEI Plate
+stl: out/clamp-test-plate.stl
+```
 
 ## Pins
 

@@ -1,13 +1,19 @@
 """printlab build <part> — check a part and export STEP, STL, GLB and a preview to parts/<part>/out/."""
 
 import argparse
+import shutil
 import sys
+import tempfile
+from pathlib import Path
 
-from build123d import Compound
+from build123d import Compound, Part
 
 from printlab.checks import check_part, hole_diameters
 from printlab.export import export_part, named_parts
 from printlab.parts import PARTS_DIR, load_part, part_names
+from printlab.reference import Invalid, Passed, compare_first_layers
+from printlab.slice_settings import SliceSettingsError, read_slice_settings
+from printlab.slicing import SliceError, slice_part
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -15,29 +21,96 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser("build", help="check and export a part")
     build.add_argument("part", choices=part_names())
+    slicing = build.add_mutually_exclusive_group()
+    slicing.add_argument(
+        "--slice-check",
+        action="store_true",
+        help="slice with Bambu Studio and report grams, time and supports; keep no sliced file",
+    )
+    slicing.add_argument(
+        "--slice",
+        action="store_true",
+        help="as --slice-check, and keep the sliced file in out/ for the phone route (docs/phone-route.md)",
+    )
+    build.add_argument(
+        "--reference",
+        metavar="PART",
+        help="with --slice-check or --slice, check the first layers against this reference print's",
+    )
     sub.add_parser("list", help="list parts")
     args = parser.parse_args(argv)
+    if args.command == "build" and args.reference is not None:
+        if not (args.slice_check or args.slice):
+            build.error("--reference needs --slice-check or --slice")
+        if args.reference not in part_names():
+            build.error(f"--reference: no part named {args.reference!r}")
 
     if args.command == "list":
         print("\n".join(part_names()))
         return 0
 
-    module = load_part(args.part)
-    bodies = named_parts(module.build(), args.part)
+    bodies = _build(args.part)
+    if bodies is None:
+        return 1
+    if not (args.slice_check or args.slice):
+        return 0
+    keep = PARTS_DIR / args.part / "out" / f"{args.part}.gcode.3mf"
+    if args.slice:
+        # A stale sliced file never outlives a new slice, even one that fails.
+        keep.unlink(missing_ok=True)
+    # The sliced file waits in a temp folder until the reference comparison, if any, passes or warns.
+    with tempfile.TemporaryDirectory(prefix="printlab-sliced-") as pending:
+        sliced_file = Path(pending) / keep.name if args.slice else None
+        status = _slice(args.part, bodies, sliced_file, args.reference)
+        if status == 0 and sliced_file is not None:
+            shutil.move(sliced_file, keep)
+            print(f"   sliced file: {keep.relative_to(PARTS_DIR.parent)} (to print it: docs/phone-route.md)")
+    return status
+
+
+def _slice(part: str, bodies: dict[str, Part], sliced_file: Path | None, reference: str | None) -> int:
+    """Slice the part and report its numbers; with `reference`, check its first layers too."""
+    try:
+        settings = read_slice_settings(part, PARTS_DIR)
+        report = slice_part(settings, sliced_file, bodies)
+    except (SliceError, SliceSettingsError) as problem:
+        print(f"FAIL {part}: {problem}", file=sys.stderr)
+        return 1
+    minutes, seconds = divmod(round(report.seconds), 60)
+    print(f"   sliced with: {settings.process}; {settings.filament}; {settings.plate}")
+    print(f"   sliced grams: {report.grams:.2f} g")
+    print(f"   sliced time: {minutes} min {seconds} s")
+    print(f"   sliced supports: {len(report.supports) or 'none'}")
+    for n, region in enumerate(report.supports, 1):
+        (x0, x1), (y0, y1), (z0, z1) = region.x, region.y, region.z
+        print(f"   support {n}: x {x0:.0f} to {x1:.0f}, y {y0:.0f} to {y1:.0f}, z {z0:.1f} to {z1:.1f} mm")
+    for warning in report.warnings:
+        print(f"WARN {part}: Bambu Studio: {warning}", file=sys.stderr)
+    _print_islands(report.islands)
+    return 0 if reference is None else _check_reference(part, report, reference)
+
+
+def _build(part: str) -> dict[str, Part] | None:
+    """Check and export the part, reporting as it goes; None if a check failed.
+
+    Returns the bodies in the STL that is sliced, not those in a second filament's STL.
+    """
+    module = load_part(part)
+    bodies = named_parts(module.build(), part)
     failed = False
     for body_name, body in bodies.items():
         for problem in check_part(body).problems:
             print(f"FAIL {body_name}: {problem}", file=sys.stderr)
             failed = True
     if failed:
-        return 1
+        return None
 
     # A part may set SEPARATE_STL = {suffix: body-name prefix} for bodies in a second filament.
     separate = getattr(module, "SEPARATE_STL", {})
-    result = export_part(bodies, args.part, PARTS_DIR / args.part / "out", separate)
+    result = export_part(bodies, part, PARTS_DIR / part / "out", separate)
     size = Compound(children=list(bodies.values())).bounding_box().size
     print(
-        f"OK {args.part}: {size.X:.1f} × {size.Y:.1f} × {size.Z:.1f} mm, "
+        f"OK {part}: {size.X:.1f} × {size.Y:.1f} × {size.Z:.1f} mm, "
         f"{result.step_volume:.0f} mm³, about {result.grams:.1f} g PETG"
     )
     for body_name, body in bodies.items():
@@ -52,11 +125,55 @@ def main(argv: list[str] | None = None) -> int:
     # A part may set GRAM_BUDGET in its model.py; going over it warns but still exports.
     budget = getattr(module, "GRAM_BUDGET", None)
     if budget is not None and result.grams > budget:
+        print(f"WARN {part}: about {result.grams:.1f} g is over the {budget:g} g budget", file=sys.stderr)
+    return {n: b for n, b in bodies.items() if not n.startswith(tuple(separate.values()))}
+
+
+def _check_reference(part: str, report, reference: str) -> int:
+    """Rebuild the reference print and slice it fresh, from its PETG STL only; compare the first layers."""
+    reference_bodies = _build(reference)
+    if reference_bodies is None:
+        print(f"FAIL {part}: reference print {reference} failed its checks", file=sys.stderr)
+        return 1
+    try:
+        reference_report = slice_part(read_slice_settings(reference, PARTS_DIR), None, reference_bodies)
+    except (SliceError, SliceSettingsError) as problem:
+        print(f"FAIL {part}: reference print {reference}: {problem}", file=sys.stderr)
+        return 1
+    for warning in reference_report.warnings:
+        print(f"WARN {part}: reference print {reference}: Bambu Studio: {warning}", file=sys.stderr)
+    verdict = compare_first_layers(report, reference_report)
+    if isinstance(verdict, Invalid):
         print(
-            f"WARN {args.part}: about {result.grams:.1f} g is over the {budget:g} g budget",
+            f"FAIL {part}: first-layer settings differ from {reference}'s in {', '.join(verdict.settings)}",
+            file=sys.stderr,
+        )
+        return 1
+    if isinstance(verdict, Passed):
+        smallest = "; ".join(
+            f"layer {layer} {part_area:.1f} mm² against {reference_area:.1f} mm²"
+            for layer, (part_area, reference_area) in verdict.smallest.items()
+        )
+        print(f"   reference print {reference}: every island at least its smallest ({smallest})")
+        return 0
+    for smaller in verdict.smaller:
+        island = smaller.island
+        print(
+            f"WARN {part}: layer {island.layer} {island.body}: {island.area:.1f} mm², "
+            f"below {reference}'s {smaller.reference_area:.1f} mm²",
             file=sys.stderr,
         )
     return 0
+
+
+def _print_islands(islands) -> None:
+    """Each first layer's islands, by body and then largest first."""
+    for layer in sorted({i.layer for i in islands}):
+        in_layer = [i for i in islands if i.layer == layer]
+        print(f"   layer {layer} islands: {len(in_layer)}")
+        for n, island in enumerate(in_layer, 1):
+            (x, y), area = island.centroid, island.area
+            print(f"   layer {layer} island {n}: {island.body}, {area:.1f} mm² at x {x:.1f}, y {y:.1f}")
 
 
 if __name__ == "__main__":
